@@ -2,6 +2,7 @@
 #include "hk/hook/Trampoline.h"
 #include "hk/svc/cpu.h"
 #include "aloha/WavMark.h"
+#include "nn/fs.h"
 #include <cstdio>
 
 namespace {
@@ -39,6 +40,43 @@ groove::Buffer<4096> buffer;
 std::atomic<u32> lastCreatedStage{kUnknown};
 std::atomic_flag draining = ATOMIC_FLAG_INIT;
 u64 session{}, reportedLoss{};
+
+unsigned drainFrameCounter{};
+bool sdReady = false;
+char storedSessionHeader[256]{};
+int storedSessionHeaderLength{};
+constexpr const char* kSdFolder = "sdmc:/Orochi";
+constexpr const char* kSdLog = "sdmc:/Orochi/groove-recorder.log";
+
+// Only called during the main-loop drain path. Never do SD I/O in a gameplay hook.
+void appendFile(const char* data, int size) {
+    if (!sdReady || size <= 0) return;
+    nn::fs::FileHandle file{};
+    if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsFailure()) return;
+    s64 fileSize = 0;
+    if (nn::fs::GetFileSize(&fileSize, file).IsSuccess()) {
+        if (fileSize > 32LL * 1024 * 1024) fileSize = 0;
+        if (nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
+            const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
+            (void)nn::fs::WriteFile(file, fileSize, data, size, flush);
+        }
+    }
+    nn::fs::CloseFile(file);
+}
+
+void initSdLogging() {
+    if (nn::fs::MountSdCard("sdmc").IsFailure()) return;
+    (void)nn::fs::CreateDirectory(kSdFolder);
+    (void)nn::fs::CreateFile(kSdLog, 0);
+    nn::fs::FileHandle file{};
+    if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsSuccess()) {
+        nn::fs::CloseFile(file);
+        sdReady = true;
+        if (storedSessionHeaderLength > 0)
+            appendFile(storedSessionHeader, storedSessionHeaderLength);
+    }
+}
+
 
 void emit(const char* text, int size) {
     if (size > 0) (void)hk::svc::OutputDebugString(text, size);
@@ -109,10 +147,11 @@ HkTrampoline appendThreadHook = [](TrampolineStatic(), void* runner,
 // Keep formatting outside the timing-sensitive hooks. Emitting at most
 // 16 events / frame bounds the work; the buffer reports any dropped records.
 void drain() {
+    if ((++drainFrameCounter % 12) != 0) return;
     if (draining.test_and_set(std::memory_order_acquire)) return;
-    char packet[3072];
+    char packet[8192];
     int used = 0;
-    for (int index = 0; index < 16; ++index) {
+    for (int index = 0; index < 48; ++index) {
         groove::Event event;
         if (!buffer.pop(event)) break;
         const int size = std::snprintf(packet + used, sizeof(packet) - used,
@@ -126,6 +165,7 @@ void drain() {
         used += size;
     }
     emit(packet, used);
+    appendFile(packet, used);
     const u64 loss = buffer.dropped();
     if (loss != reportedLoss) {
         const int size = std::snprintf(packet, sizeof(packet),
@@ -137,6 +177,11 @@ void drain() {
     }
     draining.clear(std::memory_order_release);
 }
+
+HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
+    if (!sdReady) initSdLogging();
+    orig(argument);
+};
 
 HkTrampoline loopHook = [](TrampolineStatic(), s32 argument) -> void {
     orig(argument);
@@ -192,5 +237,11 @@ extern "C" void hkMain() {
         (unsigned long long)session,
         (unsigned long long)hk::svc::getSystemTickFrequency(),
         stage, wait, hoop, sfx, bgm, subscene, cues, threads);
-    if (size > 0 && size < static_cast<int>(sizeof(header))) emit(header, size);
+    if (size > 0 && size < static_cast<int>(sizeof(header))) {
+        emit(header, size);
+        __builtin_memcpy(storedSessionHeader, header, size);
+        storedSessionHeaderLength = size;
+    }
+    if (initHook.installAtMainOffset(0x50cba0).failed())
+        diagnostic("GROOVE_DIAG sd_mount_hook_failed\n");
 }
