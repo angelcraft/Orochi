@@ -1,0 +1,54 @@
+name: Hoop probe subsdk1
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [experiment/hoop-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Compile in the LibHakkun container
+        shell: bash
+        run: |
+          set -o pipefail
+          image=fruityloops1/alpine-hakkun:latest
+          docker pull "$image"
+          docker image inspect --format '{{index .RepoDigests 0}}' "$image" | tee image-digest.txt
+          docker run --rm -v "$PWD:/src" -w /src "$image" sh -ec '
+            clang --version
+            cmake --version
+            python --version
+            python sys/tools/setup_sail.py
+            test -x sys/sail/build/sail
+            cmake -B build -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DCMAKE_BUILD_TYPE=Release -DOROCHI_HOOP_PROBE=ON
+            cmake --build build --parallel 2
+          ' 2>&1 | tee build.log
+      - name: Check module format and collect outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir artifacts
+          cmp build/Orochi.nso build/exefs/subsdk1
+          test "$(head -c4 build/exefs/subsdk1)" = NSO0
+          readelf -h build/Orochi.nss | tee artifacts/elf-header.txt
+          grep -q AArch64 artifacts/elf-header.txt
+          cp build/exefs/subsdk1 artifacts/
+          (cd artifacts && sha256sum subsdk1 > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: orochi-hoop-probe
+          path: |
+            artifacts/
+            build.log
+            image-digest.txt
