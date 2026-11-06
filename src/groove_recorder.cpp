@@ -90,7 +90,6 @@ void initSdLogging() {
         nn::fs::CloseFile(file);
         sdReady = true;
         diagnostic("GROOVE_DIAG sd_log_opened\n");
-<<<<<<< HEAD
         // Persist a header immediately: a zero-length log after play means
         // we could not write anything, regardless of gameplay-hook coverage.
         if (storedSessionHeaderLength > 0 &&
@@ -99,11 +98,10 @@ void initSdLogging() {
             diagnostic("GROOVE_DIAG session_header_written\n");
         } else {
             diagnostic("GROOVE_DIAG session_header_write_failed\n");
-=======
+        }
         if (!draining.test_and_set(std::memory_order_acquire)) {
             reportPipeline("sd_open");
             draining.clear(std::memory_order_release);
->>>>>>> c6b0b29 (Trace recorder loop, queue and SD drain)
         }
     } else {
         diagnostic("GROOVE_DIAG sd_log_open_failed\n");
