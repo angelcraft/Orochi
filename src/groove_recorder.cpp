@@ -292,9 +292,11 @@ HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
     orig(argument);
     if (sdReady && !writerStarted) {
         auto* thread = reinterpret_cast<nn::os::ThreadType*>(writerThreadStorage);
-        // The implicit core (-2) aborted in the SDK with InvalidCoreId.
+        // The pinned SDK adds 28 before svcCreateThread. A literal 44 here
+        // becomes kernel priority 72 and aborts with InvalidPriority.
+        constexpr int writerSdkPriority = 44 - 28;
         writerStarted = nn::os::CreateThread(thread, writerMain, nullptr, writerStack,
-                                             sizeof(writerStack), 44, 0).IsSuccess();
+                                             sizeof(writerStack), writerSdkPriority, 0).IsSuccess();
         if (writerStarted) nn::os::StartThread(thread);
         else diagnostic("GROOVE_DIAG writer_create_failed\n");
     }
