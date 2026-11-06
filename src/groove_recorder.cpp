@@ -99,10 +99,6 @@ void initSdLogging() {
         } else {
             diagnostic("GROOVE_DIAG session_header_write_failed\n");
         }
-        if (!draining.test_and_set(std::memory_order_acquire)) {
-            reportPipeline("sd_open");
-            draining.clear(std::memory_order_release);
-        }
     } else {
         diagnostic("GROOVE_DIAG sd_log_open_failed\n");
     }
@@ -121,7 +117,8 @@ void reportPipeline(const char* phase) {
         (unsigned long long)buffer.accepted(), (unsigned long long)buffer.dropped(),
         (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures);
     if (size > 0 && size < static_cast<int>(sizeof(line))) {
-        emit(line, size);
+        // Write only to SD, and only from a deferred main-loop checkpoint.
+        // Avoid synchronous debug SVC output while the game is booting.
         appendFile(line, size);
     }
 }
@@ -281,9 +278,11 @@ void drain() {
         }
         reportedLoss = loss;
     }
-    if (drainFrameCounter == 12 || drainFrameCounter % 120 == 0)
-        reportPipeline("drain");
+    const bool checkpoint = drainFrameCounter == 120 ||
+                            (drainFrameCounter > 120 && drainFrameCounter % 1800 == 0);
     draining.clear(std::memory_order_release);
+    // No debug filesystem access during initHook or while the drain lock is held.
+    if (checkpoint && sdReady) reportPipeline("deferred");
 }
 
 HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
@@ -292,8 +291,7 @@ HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
 };
 
 HkTrampoline loopHook = [](TrampolineStatic(), s32 argument) -> void {
-    if (loopEntered.fetch_add(1, std::memory_order_relaxed) == 0)
-        diagnostic("GROOVE_DIAG loop_entered\n");
+    loopEntered.fetch_add(1, std::memory_order_relaxed);
     orig(argument);
     drain();
 };
