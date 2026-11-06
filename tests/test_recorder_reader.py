@@ -72,6 +72,15 @@ class ReaderTests(unittest.TestCase):
         self.assertNotIn(46, stats)
         self.assertEqual(stats[45]["gameplay_hooks_installed"], 84)
 
+    def test_stage_context_change_does_not_split_window_identity(self):
+        attached, evaluated = list(decode([
+            "GROOVE_NATIVE2 44 1 101 10 10 0 3 -960 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 2 103 11 11 0 1 20 -100 -75 75 100 77\n",
+        ]))
+        self.assertEqual((attached["stage_context"], evaluated["stage_context"]), (10, 11))
+        self.assertEqual(evaluated["stage_provenance"], "last_factory_result")
+        self.assertEqual(evaluated["correlation"]["window_lifetime_start_sequence"], 1)
+
     def test_legacy_sessions_raw_fields_and_loss(self):
         records = decode([
             "prefix GROOVE_SESSION 44 19200000 1 1 1\n",

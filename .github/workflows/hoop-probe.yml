@@ -60,6 +60,8 @@ jobs:
             cp tools/build_recorder_lab_zip.py artifacts/
             cp tools/preparar_recorder_windows.cmd artifacts/
             catalog_files=(groove_gameplay_catalog.json npdm_one_svc.py build_recorder_lab_zip.py preparar_recorder_windows.cmd)
+            cp RECORDER_WINDOW_LIFETIME.md tools/verify_native_inputs.py artifacts/
+            catalog_files+=(RECORDER_WINDOW_LIFETIME.md verify_native_inputs.py)
           fi
           (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md ${catalog_files[@]} > SHA256SUMS)
           if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then

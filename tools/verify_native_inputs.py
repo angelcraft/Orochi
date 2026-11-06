@@ -27,6 +27,22 @@ POINTERS = {
 }
 
 
+# These witnesses pin the native accesses and return paths described in
+# RECORDER_WINDOW_LIFETIME.md, in addition to the trampoline entry words.
+LIFETIME_WORDS = {
+    0x12DB4C: 0xB9004404, 0x12DB50: 0xB9001001, 0x12DB5C: 0xB9003408,
+    0x12DB74: 0x3C824000,  # constructor initializes the recorded fields
+    0x12DD7C: 0xF9000401, 0x12DD80: 0xB40003A1,
+    0x12DE24: 0xA900CC15, 0x12F1B0: 0xF9402A60,  # publish, then reuse object
+    0x12E1DC: 0xD63F0120, 0x12E1E8: 0x2D428400,
+    0x12E274: 0xF8024009, 0x12E278: 0xB9403409,
+    0x12E5A8: 0xB94042E8, 0x12E63C: 0xB9404308, 0x12E740: 0x3940E2C8,
+    0x12E4C8: 0xD63F0100, 0x12E4CC: 0x3940E2C8, 0x12E3D0: 0xD63F0100,
+    0x12DE80: 0xB9003408, 0x12DF38: 0xD63F0100, 0x12DF40: 0x3940E268,
+    0x12E028: 0xB9003408, 0x12E030: 0x78039008, 0x12E034: 0xD65F03C0,
+}
+
+
 def verify(data):
     if hashlib.sha256(data).hexdigest() != SHA256 or data[0x40:0x60].hex() != BUILD:
         raise ValueError("Expected the unmodified Groove 1.0.0 Switch main NSO")
@@ -52,6 +68,9 @@ def verify(data):
     for addr, expected in GUARDS.items():
         if word(addr, "<I") != expected:
             raise ValueError(f"Hook guard mismatch at {addr:#x}")
+    for addr, expected in LIFETIME_WORDS.items():
+        if word(addr, "<I") != expected:
+            raise ValueError(f"Window lifetime witness mismatch at {addr:#x}")
     for addr, expected in BRANCHES.items():
         insn = word(addr, "<I")
         displacement = ((insn & 0x03ffffff) ^ 0x02000000) - 0x02000000
@@ -67,7 +86,7 @@ def verify(data):
         for index, (insn,) in enumerate(struct.iter_unpack("<I", text))
     )
     return {"build_id": BUILD, "sha256": SHA256, "guards": len(GUARDS),
-            "branches": len(BRANCHES), "pointers": len(POINTERS),
+            "lifetime_words": len(LIFETIME_WORDS), "branches": len(BRANCHES), "pointers": len(POINTERS),
             "direct_dispatch_sites": callers}
 
 
