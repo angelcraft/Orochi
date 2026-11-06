@@ -50,7 +50,9 @@ jobs:
           readelf -h build/Orochi.nss | tee artifacts/elf-header.txt
           grep -q AArch64 artifacts/elf-header.txt
           cp build/exefs/subsdk1 artifacts/
-          (cd artifacts && sha256sum subsdk1 > SHA256SUMS)
+          cp tools/read_groove_recorder.py artifacts/
+          cp RECORDER_RELEASE_NOTES.md artifacts/README.md
+          (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md > SHA256SUMS)
       - uses: actions/upload-artifact@v7
         if: always()
         with:
