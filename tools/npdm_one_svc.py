@@ -106,6 +106,10 @@ def patch(original: bytes) -> tuple[bytes, dict]:
     acid = svc_words(kac_words(
         original, section_start=acid_off, section_size=acid_size,
         kac_offset_field=0x230, label="ACID"), "ACID")
+    # Preserve the original ACI0 ⊆ ACID syscall restriction relationship.
+    syscall_mask = ((1 << 24) - 1) << 5
+    if (aci[1] & syscall_mask) & ~(acid[1] & syscall_mask):
+        raise NpdmError("Original ACI0 requests syscalls outside ACID limits")
     bit = 1 << (5 + SVC_BIT)
     if (aci[1] & bit) or (acid[1] & bit):
         raise NpdmError("0x74 is already set in ACI0 or ACID: original NPDM was not expected")
