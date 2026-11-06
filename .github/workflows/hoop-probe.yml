@@ -1,9 +1,9 @@
-name: Hoop probe subsdk1
+name: Orochi experimental subsdk1
 
 on:
   workflow_dispatch:
   push:
-    branches: [experiment/hoop-probe]
+    branches: [experiment/hoop-probe, experiment/groove-recorder]
 
 permissions:
   contents: read
@@ -24,13 +24,20 @@ jobs:
           image=fruityloops1/alpine-hakkun:latest
           docker pull "$image"
           docker image inspect --format '{{index .RepoDigests 0}}' "$image" | tee image-digest.txt
-          docker run --rm -v "$PWD:/src" -w /src "$image" sh -ec '
+          mode=OROCHI_HOOP_PROBE
+          if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder ]]; then mode=OROCHI_RECORDER; fi
+          docker run --rm -e "OROCHI_MODE=$mode" -v "$PWD:/src" -w /src "$image" sh -ec '
+            if [ "$OROCHI_MODE" = OROCHI_RECORDER ]; then
+              clang++ -std=c++20 -Iinclude tests/recorder_buffer.cpp -o /tmp/recorder-buffer
+              /tmp/recorder-buffer
+              python -m unittest discover -s tests -p "test_*.py"
+            fi
             clang --version
             cmake --version
             python --version
             python sys/tools/setup_sail.py
             test -x sys/sail/build/sail
-            cmake -B build -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DCMAKE_BUILD_TYPE=Release -DOROCHI_HOOP_PROBE=ON
+            cmake -B build -DCMAKE_C_COMPILER_FORCED=TRUE -DCMAKE_CXX_COMPILER_FORCED=TRUE -DCMAKE_BUILD_TYPE=Release -D"$OROCHI_MODE"=ON
             cmake --build build --parallel 2
           ' 2>&1 | tee build.log
       - name: Check module format and collect outputs
@@ -47,7 +54,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: orochi-hoop-probe
+          name: orochi-experiment
           path: |
             artifacts/
             build.log
