@@ -20,7 +20,12 @@ void trace(const char (&message)[N]) {
 extern "C" __attribute__((used, noinline)) unsigned hoopProbeStop(void* thread, char* stage) {
     auto stop = reinterpret_cast<unsigned (*)(void*)>(mainBase + kStop);
     const unsigned result = stop(thread);
-    if ((result & 1u) == 0) {
+    if (result & 1u) {
+        trace("Orochi Hoop: original thread requested stop");
+    } else if (!stage) {
+        trace("Orochi Hoop: missing stage pointer");
+    } else {
+        trace("Orochi Hoop: calling SceneRing_Hoop at the beat-22 site");
         auto hoop = reinterpret_cast<void (*)(void*, void*, int)>(mainBase + kHoop);
         hoop(stage + kRingSceneOffset, thread, -1);
         trace("Orochi Hoop: extra call returned at the beat-22 site");
@@ -36,17 +41,30 @@ extern "C" __attribute__((naked)) unsigned hoopProbeBridge(void*) {
 }
 
 extern "C" void hkMain() {
+    trace("Orochi Hoop: hkMain entered");
     auto* module = hk::ro::getMainModule();
-    if (!module || !module->getBuildId()) return;
+    if (!module || !module->getBuildId()) {
+        trace("Orochi Hoop: main module or Build ID unavailable");
+        return;
+    }
     static_assert(sizeof(kBuildId) == hk::ro::cBuildIdSize);
-    if (__builtin_memcmp(module->getBuildId(), kBuildId, sizeof(kBuildId)) != 0) return;
+    if (__builtin_memcmp(module->getBuildId(), kBuildId, sizeof(kBuildId)) != 0) {
+        trace("Orochi Hoop: unsupported game Build ID");
+        return;
+    }
     mainBase = module->range().start();
     const auto* site = reinterpret_cast<const unsigned*>(mainBase + kStopSite);
-    if (site[-1] != 0xaa1303e0 || site[0] != 0x9403a054 || site[1] != 0x370095c0) return;
+    if (site[-1] != 0xaa1303e0 || site[0] != 0x9403a054 || site[1] != 0x370095c0) {
+        trace("Orochi Hoop: hook site has unexpected instructions");
+        return;
+    }
     const auto from = mainBase + kStopSite;
     const auto to = reinterpret_cast<ptr>(&hoopProbeBridge);
     const auto distance = to >= from ? to - from : from - to;
-    if ((distance & 3) || distance > hk::hook::cMaxBranchDistance) return;
+    if ((distance & 3) || distance > hk::hook::cMaxBranchDistance) {
+        trace("Orochi Hoop: bridge is outside BL range");
+        return;
+    }
     if (hk::hook::writeBranchLinkAtMainOffset(kStopSite, &hoopProbeBridge).failed())
         trace("Orochi Hoop: hook write failed");
     else
