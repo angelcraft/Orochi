@@ -1,6 +1,8 @@
 """Synthetic NPDM layout tests; no copyrighted game metadata is committed."""
+import hashlib
 import struct
 import unittest
+from unittest.mock import patch as mock
 
 from tools.npdm_one_svc import NpdmError, PROGRAM_ID, patch
 
@@ -48,6 +50,36 @@ class NpdmOneSvcTests(unittest.TestCase):
         struct.pack_into("<I", source, ACID_KAC_OFF, 0xFFFFFFFF)
         with self.assertRaisesRegex(NpdmError, "ACID needs exactly one"):
             patch(bytes(source))
+
+    def test_pinned_layout_appends_group_and_optionally_enables_sd(self):
+        source = bytearray(0x654)
+        source[:4] = b"META"
+        source[0x470:0x474] = b"ACI0"
+        source[0x280:0x284] = b"ACID"
+        struct.pack_into("<IIII", source, 0x70, 0x470, 0x1e4, 0x80, 0x3e4)
+        struct.pack_into("<Q", source, 0x480, PROGRAM_ID)
+        struct.pack_into("<QQ", source, 0x290, PROGRAM_ID, PROGRAM_ID)
+        struct.pack_into("<I", source, 0x284, 0x2e4)
+        for offset in (0x2c4, 0x4b4):
+            struct.pack_into("<Q", source, offset, 1 << 62)
+        expected = source + bytes(4)
+        for pos, new in ((0x74, 0x1e8), (0x7c, 0x3e8), (0x284, 0x2e8),
+                         (0x2b4, 40), (0x4a4, 40), (0x464, 0x8200000f),
+                         (0x654, 0x8200000f)):
+            struct.pack_into("<I", expected, pos, new)
+        recorder = bytearray(expected)
+        recorder[0x2c6] = recorder[0x4b6] = 0x20
+        with mock("tools.npdm_one_svc.ORIGINAL_NPDM_SHA256", hashlib.sha256(source).hexdigest()), \
+             mock("tools.npdm_one_svc.CANDIDATE_NPDM_SHA256", hashlib.sha256(expected).hexdigest()), \
+             mock("tools.npdm_one_svc.RECORDER_NPDM_SHA256", hashlib.sha256(recorder).hexdigest()):
+            self.assertEqual(patch(bytes(source))[0], expected)
+            candidate, report = patch(bytes(source), sd_access=True)
+            self.assertEqual(candidate, recorder)
+            self.assertEqual(set(report["filesystem_flags_updated"]), {"0x2c4", "0x4b4"})
+
+    def test_sd_access_requires_pinned_npdm(self):
+        with self.assertRaisesRegex(NpdmError, "exact original"):
+            patch(fixture(), sd_access=True)
 
     def test_already_enabled_fails(self):
         source = bytearray(fixture())

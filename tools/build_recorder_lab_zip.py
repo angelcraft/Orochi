@@ -14,14 +14,13 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 try:
-    from tools.npdm_one_svc import PROGRAM_ID, NpdmError, patch
+    from tools.npdm_one_svc import ORIGINAL_NPDM_SHA256, PROGRAM_ID, NpdmError, patch
 except ModuleNotFoundError:  # python tools/build_recorder_lab_zip.py
-    from npdm_one_svc import PROGRAM_ID, NpdmError, patch
+    from npdm_one_svc import ORIGINAL_NPDM_SHA256, PROGRAM_ID, NpdmError, patch
 
 CONTENTS = f"atmosphere/contents/{PROGRAM_ID:016X}/exefs"
 BUILD_ID = "03ff4a3bec96bde3a2e37ce3aa4caa0cae8935a8000000000000000000000000"
 ORIGINAL_MAIN_SHA256 = "494c35e74dae893615980134f8be7673779f8d4b9eb9601e0f1b130d5ee1870e"
-ORIGINAL_NPDM_SHA256 = "9ac7be05fbefa81857e23f43b905ba4efad38f948b02bfc842b844b9b6edd5cd"
 PLUS240_SHA256 = "e4da82980508cebdfda5e003d829675a4997ecef7999950642779ab53016781c"
 NOTES = """Groove Recorder NPDM laboratory bundle (UNVALIDATED)
 
@@ -42,10 +41,10 @@ The logger appends to sdmc:/Orochi/groove-recorder.log without an arbitrary
 """
 
 
-def create_bundle(npdm: bytes, module: bytes) -> tuple[dict[str, bytes], dict]:
+def create_bundle(npdm: bytes, module: bytes, *, sd_access: bool = False) -> tuple[dict[str, bytes], dict]:
     if module[:4] != b"NSO0" or len(module) < 0x1000:
         raise NpdmError("Not a plausible AArch64 subsdk1 NSO")
-    npdm_out, report = patch(npdm)
+    npdm_out, report = patch(npdm, sd_access=sd_access)
     files = {
         f"{CONTENTS}/subsdk1": module,
         f"{CONTENTS}/main.npdm": npdm_out,
@@ -125,7 +124,7 @@ def main() -> None:
         if any(main.parent.glob("subsdk*")):
             raise NpdmError("El ExeFS de origen ya contiene subsdk")
         module = args.subsdk1.read_bytes()
-        files, report = create_bundle(original, module)
+        files, report = create_bundle(original, module, sd_access=True)
         module_ids = {module[0x40:0x60].hex()}
         for name in ("rtld", "sdk"):
             sibling = main.with_name(name)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, strictly in-place NPDM svcMapProcessMemory capability audit/patch.
+"""Offline NPDM svcMapProcessMemory capability audit/patch.
 
 Accepts only an original Groove 1.0.0 main.npdm extracted by its owner.
 Never changes ExeFS, never installs a patch, and never rewrites unrelated
@@ -17,6 +17,10 @@ from pathlib import Path
 import struct
 
 PROGRAM_ID = 0x0100D9F01D474000
+ORIGINAL_NPDM_SHA256 = "9ac7be05fbefa81857e23f43b905ba4efad38f948b02bfc842b844b9b6edd5cd"
+CANDIDATE_NPDM_SHA256 = "d9e0905b221f4960ddfebf5bf9be1712513513fa0018edb97b6d2bd46d123abc"
+RECORDER_NPDM_SHA256 = "f9e0f4945021c5ed75adee90a96642fbf18a6e418a744a746ee9061c363ad127"
+SD_CARD_ACCESS = 1 << 21
 SVC = 0x74
 SVC_GROUP = SVC // 24
 SVC_BIT = SVC % 24
@@ -77,7 +81,44 @@ def svc_words(entries: list[tuple[int, int]], label: str) -> tuple[int, int]:
     return found[0]
 
 
-def patch(original: bytes) -> tuple[bytes, dict]:
+def append_pinned_group(original: bytes, *, sd_access: bool) -> tuple[bytes, dict]:
+    # The verified original has no group 4. ACID has four free padding
+    # bytes and ACI0 ends at EOF, so neither KAC nor any section is moved.
+    changes = {
+        0x74: 0x1e8, 0x7c: 0x3e8, 0x284: u32(original, 0x284) + 4,
+        0x2b4: 40, 0x4a4: 40, 0x464: 0x8200000f, 0x654: 0x8200000f,
+    }
+    updated = bytearray(original + bytes(4))
+    for offset, word in changes.items():
+        struct.pack_into("<I", updated, offset, word)
+    fs_changes = {}
+    if sd_access:
+        # Both the requested and allowed filesystem flags must enable SD.
+        for offset in (0x2c4, 0x4b4):
+            flags = u64(original, offset)
+            new_flags = flags | SD_CARD_ACCESS
+            struct.pack_into("<Q", updated, offset, new_flags)
+            fs_changes[f"0x{offset:x}"] = f"0x{new_flags:016x}"
+    candidate = bytes(updated)
+    digest = hashlib.sha256(candidate).hexdigest()
+    if digest != (RECORDER_NPDM_SHA256 if sd_access else CANDIDATE_NPDM_SHA256):
+        raise NpdmError("Pinned NPDM candidate hash mismatch")
+    return candidate, {
+        "status": "static_candidate_only",
+        "title_id": f"{PROGRAM_ID:016x}",
+        "svc": f"0x{SVC:x}",
+        "original_sha256": ORIGINAL_NPDM_SHA256,
+        "candidate_sha256": digest,
+        "original_length": len(original),
+        "candidate_length": len(candidate),
+        "signed_acid_modified": True,
+        "requires_atmosphere_hardware_validation": True,
+        "changed_words": {f"0x{offset:x}": f"0x{word:08x}" for offset, word in changes.items()},
+        "filesystem_flags_updated": fs_changes,
+    }
+
+
+def patch(original: bytes, *, sd_access: bool = False) -> tuple[bytes, dict]:
     if len(original) < 0x80 or len(original) > MAX_BYTES:
         raise NpdmError("NPDM size not plausible")
     if original[:4] != b"META":
@@ -100,6 +141,10 @@ def patch(original: bytes) -> tuple[bytes, dict]:
     minimum, maximum = u64(original, acid_a + 0x210), u64(original, acid_a + 0x218)
     if not minimum <= actual_id <= maximum:
         raise NpdmError("ACI0 title ID outside ACID program ID range")
+    if hashlib.sha256(original).hexdigest() == ORIGINAL_NPDM_SHA256:
+        return append_pinned_group(original, sd_access=sd_access)
+    if sd_access:
+        raise NpdmError("SD access profile requires the exact original Groove 1.0.0 NPDM")
     aci = svc_words(kac_words(
         original, section_start=aci_off, section_size=aci_size,
         kac_offset_field=0x30, label="ACI0"), "ACI0")
@@ -156,9 +201,10 @@ def main() -> None:
     p.add_argument("original", type=Path, help="Owner-extracted original main.npdm")
     p.add_argument("--output", type=Path, help="Write *local* experimental main.npdm")
     p.add_argument("--report", type=Path, help="Write JSON preflight manifest")
+    p.add_argument("--sd-access", action="store_true", help="Also grant SD access for the recorder")
     a = p.parse_args()
     original = a.original.read_bytes()
-    patched, report = patch(original)
+    patched, report = patch(original, sd_access=a.sd_access)
     print(json.dumps(report, indent=2))
     if a.output:
         if a.output.resolve() == a.original.resolve() or a.output.exists():
