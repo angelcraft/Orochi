@@ -20,7 +20,6 @@ namespace {
 // existing symbols; none should be reused for another game update.
 constexpr ptr kStage = 0x488940;
 constexpr ptr kWait = 0x514d70;
-constexpr ptr kLoop = 0x509e10;
 constexpr ptr kScheduleSfx = 0x12bff0;
 constexpr ptr kStartBgm = 0x139140;
 constexpr ptr kInitSubScene = 0x4d9dc0;
@@ -56,7 +55,6 @@ bool sdReady = false;
 bool sdMounted = false;
 char storedSessionHeader[256]{};
 int storedSessionHeaderLength{};
-std::atomic<u64> loopEntered{0};
 u64 dequeued{}, sdBatches{}, sdFailures{};
 
 void reportPipeline(const char* phase);
@@ -122,8 +120,8 @@ void emit(const char* text, int size) {
 void reportPipeline(const char* phase) {
     char line[256];
     const int size = std::snprintf(line, sizeof(line),
-        "GROOVE_DIAG pipeline phase=%s session=%llu loop=%llu queued=%llu dropped=%llu dequeued=%llu sd_batches=%llu sd_failures=%llu\n",
-        phase, (unsigned long long)session, (unsigned long long)loopEntered.load(std::memory_order_relaxed),
+        "GROOVE_DIAG pipeline phase=%s session=%llu queued=%llu dropped=%llu dequeued=%llu sd_batches=%llu sd_failures=%llu\n",
+        phase, (unsigned long long)session,
         (unsigned long long)buffer.accepted(), (unsigned long long)buffer.dropped(),
         (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures);
     if (size > 0 && size < static_cast<int>(sizeof(line))) {
@@ -301,11 +299,6 @@ HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
     }
 };
 
-HkTrampoline loopHook = [](TrampolineStatic(), s32 argument) -> void {
-    loopEntered.fetch_add(1, std::memory_order_relaxed);
-    orig(argument);
-};
-
 void diagnostic(const char* message) {
     const int size = std::snprintf(nullptr, 0, "%s", message);
     if (size > 0 && size < 140) emit(message, size);
@@ -323,8 +316,6 @@ extern "C" void hkMain() {
         return;
     }
     session = hk::svc::getSystemTick();
-    if (!installChecked(module, loopHook, kLoop, 0x900044a8))
-        diagnostic("GROOVE_DIAG main_loop_hook_rejected\n");
     const unsigned stage = installChecked(module, stageHook, kStage, 0xa9bb7bfd);
     const unsigned wait = installChecked(module, waitHook, kWait, 0xb9427808);
     const unsigned sfx = installChecked(module, sfxHook, kScheduleSfx, 0xfc190fec);
