@@ -57,12 +57,15 @@ void diagnostic(const char* message);
 bool appendFile(const char* data, int size) {
     if (!sdReady || size <= 0) return false;
     nn::fs::FileHandle file{};
-    if (nn::fs::OpenFile(&file, kSdLog,
-                         nn::fs::OpenMode_Write | nn::fs::OpenMode_Append).IsFailure())
+    // Horizon FS requires explicit file growth before writing beyond EOF.
+    // Match Orochi's original known writer instead of relying on append mode.
+    if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsFailure())
         return false;
     s64 fileSize = 0;
     bool written = false;
-    if (nn::fs::GetFileSize(&fileSize, file).IsSuccess()) {
+    if (nn::fs::GetFileSize(&fileSize, file).IsSuccess() &&
+        fileSize >= 0 && fileSize <= 0x7fffffffffffffffLL - size &&
+        nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
         const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
         written = nn::fs::WriteFile(file, fileSize, data, size, flush).IsSuccess();
     }
@@ -83,6 +86,15 @@ void initSdLogging() {
         nn::fs::CloseFile(file);
         sdReady = true;
         diagnostic("GROOVE_DIAG sd_log_opened\n");
+        // Persist a header immediately: a zero-length log after play means
+        // we could not write anything, regardless of gameplay-hook coverage.
+        if (storedSessionHeaderLength > 0 &&
+            appendFile(storedSessionHeader, storedSessionHeaderLength)) {
+            storedSessionHeaderLength = 0;
+            diagnostic("GROOVE_DIAG session_header_written\n");
+        } else {
+            diagnostic("GROOVE_DIAG session_header_write_failed\n");
+        }
     } else {
         diagnostic("GROOVE_DIAG sd_log_open_failed\n");
     }
