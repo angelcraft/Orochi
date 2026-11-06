@@ -11,7 +11,7 @@
 // Imports match the ThreadType overload used by the original main NSO.
 namespace nn::os {
 struct ThreadType;
-nn::Result CreateThread(ThreadType*, void (*)(void*), void*, void*, unsigned long, int);
+nn::Result CreateThread(ThreadType*, void (*)(void*), void*, void*, unsigned long, int, int);
 void StartThread(ThreadType*);
 }
 
@@ -292,8 +292,9 @@ HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
     orig(argument);
     if (sdReady && !writerStarted) {
         auto* thread = reinterpret_cast<nn::os::ThreadType*>(writerThreadStorage);
+        // The implicit core (-2) aborted in the SDK with InvalidCoreId.
         writerStarted = nn::os::CreateThread(thread, writerMain, nullptr, writerStack,
-                                             sizeof(writerStack), 44).IsSuccess();
+                                             sizeof(writerStack), 44, 0).IsSuccess();
         if (writerStarted) nn::os::StartThread(thread);
         else diagnostic("GROOVE_DIAG writer_create_failed\n");
     }
