@@ -13,7 +13,10 @@ import json
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from tools.npdm_one_svc import PROGRAM_ID, NpdmError, patch
+try:
+    from tools.npdm_one_svc import PROGRAM_ID, NpdmError, patch
+except ModuleNotFoundError:  # python tools/build_recorder_lab_zip.py
+    from npdm_one_svc import PROGRAM_ID, NpdmError, patch
 
 CONTENTS = f"atmosphere/contents/{PROGRAM_ID:016X}/exefs"
 NOTES = """Groove Recorder NPDM laboratory bundle (UNVALIDATED)
