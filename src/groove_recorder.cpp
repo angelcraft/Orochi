@@ -286,20 +286,34 @@ void drain() {
             groove::Event event;
             if (!buffer.pop(event)) break;
             ++dequeued;
-            const int size = event.kind == GameplayCalled
-                ? std::snprintf(packet + used, sizeof(packet) - used,
+            int size = 0;
+            if (event.kind == GameplayCalled) {
+                size = std::snprintf(packet + used, sizeof(packet) - used,
                     "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
                     (unsigned long long)session, (unsigned long long)event.sequence,
                     (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
                     (long long)event.arguments[0], (long long)event.arguments[1],
-                    (long long)event.arguments[2], (long long)event.arguments[3])
-                : std::snprintf(packet + used, sizeof(packet) - used,
-                "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
-                (unsigned long long)session,
-                (unsigned long long)event.sequence,
-                (unsigned long long)event.counter,
-                event.kind, event.stage, event.value,
-                event.threadTick, event.auxiliary);
+                    (long long)event.arguments[2], (long long)event.arguments[3]);
+            } else if (event.kind == WindowAttached ||
+                       event.kind == WindowEvaluated ||
+                       event.kind == InputDispatched) {
+                // Must match tools/read_groove_recorder.py (NATIVE: 12 numeric fields).
+                size = std::snprintf(packet + used, sizeof(packet) - used,
+                    "GROOVE_NATIVE %llu %llu %llu %u %u %d %d %d %lld %lld %lld %lld\n",
+                    (unsigned long long)session, (unsigned long long)event.sequence,
+                    (unsigned long long)event.counter, event.stage, event.kind,
+                    event.value, event.auxiliary, (int)(s32)event.threadTick,
+                    (long long)event.arguments[0], (long long)event.arguments[1],
+                    (long long)event.arguments[2], (long long)event.arguments[3]);
+            } else {
+                size = std::snprintf(packet + used, sizeof(packet) - used,
+                    "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
+                    (unsigned long long)session,
+                    (unsigned long long)event.sequence,
+                    (unsigned long long)event.counter,
+                    event.kind, event.stage, event.value,
+                    event.threadTick, event.auxiliary);
+            }
             if (size < 0 || size >= static_cast<int>(sizeof(packet) - used)) break;
             used += size;
         }
