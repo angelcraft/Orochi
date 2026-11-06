@@ -5,7 +5,7 @@ Every record retains provenance. "musical_beat" is intentionally unknown
 until the game's tempo clock and thread timing have been verified.
 """
 import argparse
-from collections import Counter
+from collections import Counter, OrderedDict
 import json
 from pathlib import Path
 import re
@@ -38,10 +38,10 @@ SUBSCENES = (
     "Alien Alphabet", "A for Effort", "Lightning Bolting",
     "Wiper Bosses", "Deep Sea",
 )
-TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|NATIVE|REC2|REC|LOST)\s+([-\d ]+)")
+TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|NATIVE2|NATIVE|REC2|REC|LOST)\s+([-\d ]+)")
 DIAG = re.compile(r"\bGROOVE_DIAG\s+([^\r\n]+)")
 EXPECT = {"SESSION": 5, "SESSION2": 10, "REC": 7,
-          "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10, "NATIVE": 12}
+          "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10, "NATIVE": 12, "NATIVE2": 13}
 
 
 def decode_argument(arg_type, raw):
@@ -54,9 +54,50 @@ def decode_argument(arg_type, raw):
     return raw
 
 
+def correlate_native(state, context, stage, seq, kind, parameters, token):
+    stats = state.setdefault("native_input_statistics", {})
+    counts = stats.setdefault(str(stage), Counter())
+    counts["records"] += 1
+    gameplay, windows, evaluations = context
+    correlation = {"previous_gameplay_sequence_in_stage": gameplay.get(stage)}
+    key = (stage, parameters["logical_input_id"])
+    if kind == 12:
+        counts[f"dispatcher_result:{parameters['dispatcher_result']}"] += 1
+        correlation["preceding_evaluations_since_previous_dispatch_for_id"] = evaluations.pop(key, 0)
+        return correlation
+
+    if kind == 10:
+        thresholds = ",".join(map(str, parameters["effective_thresholds"]))
+        counts[f"attached_thresholds:{thresholds}"] += 1
+    elif kind == 11:
+        counts[f"admission_code:{parameters['admission_code']}"] += 1
+        evaluations[key] = evaluations.get(key, 0) + 1
+    elif kind == 13:
+        before, after = parameters["flags_before"], parameters["flags_after"]
+        counts[f"window_transition:{before}->{after}"] += 1
+    elif kind == 14:
+        counts["rearmed"] += 1
+
+    if token is not None:
+        if kind in (10, 14):
+            windows[token] = seq
+            windows.move_to_end(token)
+            if len(windows) > 8192:
+                windows.popitem(last=False)
+                counts["window_context_evictions"] += 1
+        lifetime = windows.get(token)
+        if lifetime is not None:
+            windows.move_to_end(token)
+        else:
+            counts["window_lifetime_unresolved"] += 1
+        correlation.update(window_token=f"{token:016x}", window_lifetime_start_sequence=lifetime)
+    return correlation
+
+
 def decode(lines):
     sessions = {}
     diagnostics = []
+    contexts = {}
     commands = None
     for line in lines:
         diagnostic = DIAG.search(line)
@@ -90,14 +131,21 @@ def decode(lines):
                 ))
                 continue
             if tag == "LOST":
-                state["dropped"] = max(state["dropped"], args[0])
+                if args[0] > state["dropped"]:
+                    contexts.pop(sid, None)
+                    state["dropped"] = args[0]
                 continue
+            token = None
             if tag == "ACTION":
                 seq, counter, stage, command_id, scene_id, *raw_args = args
                 kind, value, thread_field, auxiliary = 9, command_id, 0xffffffff, None
-            elif tag == "NATIVE":
+            elif tag in ("NATIVE", "NATIVE2"):
                 seq, counter, stage, kind, value, auxiliary, relative, *raw_args = args
-                if kind not in (10, 11, 12):
+                if tag == "NATIVE2":
+                    token = raw_args.pop()
+                    if not 0 <= token < 2**64:
+                        continue
+                if kind not in ((10, 11, 12, 13, 14) if tag == "NATIVE2" else (10, 11, 12)):
                     continue
                 thread_field = 0xffffffff
             elif tag == "REC2":
@@ -107,7 +155,11 @@ def decode(lines):
                 auxiliary = None
             if seq <= state["last_sequence"]:
                 continue
-            state["gaps"] += seq - state["last_sequence"] - 1
+            gap = seq - state["last_sequence"] - 1
+            state["gaps"] += gap
+            if gap:
+                contexts.pop(sid, None)
+            context = contexts.setdefault(sid, ({}, OrderedDict(), {}))
             state["last_sequence"] = seq
             if state["first_counter"] is None:
                 state["first_counter"] = counter
@@ -137,17 +189,25 @@ def decode(lines):
                     parameters["raw_arguments"] = raw_args
                 observed = state.setdefault("gameplay_commands_observed", Counter())
                 observed[command_id] += 1
-            if tag == "NATIVE":
+                context[0][stage_id] = seq
+            correlation = None
+            if tag in ("NATIVE", "NATIVE2"):
                 if kind == 12:
                     event_name, offset = "logical_input_dispatched", 0x12A690
                     parameters = {"logical_input_id": value, "native_argument": auxiliary,
                                   "group": raw_args[0], "dispatcher_result": raw_args[1]}
                 else:
-                    event_name, offset = (("input_window_attached", 0x12DD60) if kind == 10
-                                          else ("input_window_evaluated", 0x12E180))
+                    event_name, offset, field = {
+                        10: ("input_window_attached", 0x12DD60, "group"),
+                        11: ("input_window_evaluated", 0x12E180, "admission_code"),
+                        13: ("input_window_state_changed", 0x12DE60, "packed_flags"),
+                        14: ("input_window_rearmed", 0x12E020, "delta_ticks"),
+                    }[kind]
                     parameters = {"logical_input_id": value, "relative_ticks": relative,
-                                  "effective_thresholds": raw_args,
-                                  ("group" if kind == 10 else "admission_code"): auxiliary}
+                                  "effective_thresholds": raw_args, field: auxiliary}
+                    if kind == 13:
+                        parameters.update(flags_before=auxiliary & 7, flags_after=(auxiliary >> 3) & 7)
+                correlation = correlate_native(state, context, stage_id, seq, kind, parameters, token)
             if kind in (4, 5) and auxiliary is not None:
                 parameters["delay_ticks"] = auxiliary
             if kind == 6 and auxiliary is not None:
@@ -190,6 +250,7 @@ def decode(lines):
                 "player_input": None,
                 "judgement": None,
                 "parameters": parameters,
+                **({"correlation": correlation} if correlation is not None else {}),
             }
     if diagnostics:
         sessions["_diagnostics"] = diagnostics

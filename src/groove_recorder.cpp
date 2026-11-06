@@ -42,7 +42,9 @@ enum Kind : u32 {
     GameplayCalled = 9,
     WindowAttached = 10,
     WindowEvaluated = 11,
-    InputDispatched = 12
+    InputDispatched = 12,
+    WindowStateChanged = 13,
+    WindowRearmed = 14
 };
 
 groove::Buffer<4096> buffer;
@@ -236,12 +238,24 @@ s32 nativeWord(const void* object, unsigned offset) {
     return value;
 }
 
+// An opaque identity scoped to this process. The reader starts a new lifetime
+// on attachment or rearm, even when the allocator reuses an address.
+u64 windowToken(const void* window) {
+    u64 token = (reinterpret_cast<uintptr_t>(window) ^ session) * 0x9e3779b97f4a7c15ULL;
+    return token ^ (token >> 32);
+}
+
+unsigned windowState(const void* window) {
+    const auto* bytes = static_cast<const unsigned char*>(window);
+    return (bytes[0x38] & 1u) | ((bytes[0x39] & 1u) << 1) | ((bytes[0x3a] & 1u) << 2);
+}
+
 void recordWindow(Kind kind, const void* window, s32 inputId, s32 detail, s32 relative) {
     buffer.push({0, hk::svc::getSystemTick(), kind,
                  lastCreatedStage.load(std::memory_order_relaxed), inputId,
                  static_cast<u32>(relative), detail,
                  {nativeWord(window, 0x24), nativeWord(window, 0x28),
-                  nativeWord(window, 0x2c), nativeWord(window, 0x30)}});
+                  nativeWord(window, 0x2c), nativeWord(window, 0x30)}, windowToken(window)});
 }
 
 HkTrampoline attachWindowHook = [](TrampolineStatic(), void* window, void* manager) -> void {
@@ -269,10 +283,27 @@ HkTrampoline dispatchInputHook = [](TrampolineStatic(), void* scene, s32 inputId
     return dispatched;
 };
 
+HkTrampoline advanceWindowHook = [](TrampolineStatic(), void* window, s32 delta) -> void {
+    const unsigned before = windowState(window);
+    orig(window, delta);
+    // The list walker reads this same object after the virtual update returns.
+    const unsigned after = windowState(window);
+    if (before != after) {
+        recordWindow(WindowStateChanged, window, nativeWord(window, 0x10),
+                     static_cast<s32>(before | (after << 3)), nativeWord(window, 0x34));
+    }
+};
+
+HkTrampoline rearmWindowHook = [](TrampolineStatic(), void* window, s32 delta) -> void {
+    orig(window, delta);
+    recordWindow(WindowRearmed, window, nativeWord(window, 0x10),
+                 delta, nativeWord(window, 0x34));
+};
+
 #include "groove_gameplay_hooks.inc"
 
 void drain() {
-    static char packet[48 * 192];
+    static char packet[48 * 224];
     static int used = 0;
     if (storedSessionHeaderLength > 0) {
         if (!appendFile(storedSessionHeader, storedSessionHeaderLength)) {
@@ -296,15 +327,17 @@ void drain() {
                     (long long)event.arguments[2], (long long)event.arguments[3]);
             } else if (event.kind == WindowAttached ||
                        event.kind == WindowEvaluated ||
-                       event.kind == InputDispatched) {
-                // Must match tools/read_groove_recorder.py (NATIVE: 12 numeric fields).
+                       event.kind == InputDispatched || event.kind == WindowStateChanged ||
+                       event.kind == WindowRearmed) {
+                // NATIVE2 adds an opaque token. Zero on dispatch, which has no window pointer.
                 size = std::snprintf(packet + used, sizeof(packet) - used,
-                    "GROOVE_NATIVE %llu %llu %llu %u %u %d %d %d %lld %lld %lld %lld\n",
+                    "GROOVE_NATIVE2 %llu %llu %llu %u %u %d %d %d %lld %lld %lld %lld %llu\n",
                     (unsigned long long)session, (unsigned long long)event.sequence,
                     (unsigned long long)event.counter, event.stage, event.kind,
                     event.value, event.auxiliary, (int)(s32)event.threadTick,
                     (long long)event.arguments[0], (long long)event.arguments[1],
-                    (long long)event.arguments[2], (long long)event.arguments[3]);
+                    (long long)event.arguments[2], (long long)event.arguments[3],
+                    (unsigned long long)event.windowToken);
             } else {
                 size = std::snprintf(packet + used, sizeof(packet) - used,
                     "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
@@ -388,14 +421,16 @@ extern "C" void hkMain() {
     const unsigned attached = installChecked(module, attachWindowHook, 0x12dd60, 0xfc1d0fe8);
     const unsigned evaluated = installChecked(module, evaluateWindowHook, 0x12e180, 0xb9401008);
     const unsigned dispatched = installChecked(module, dispatchInputHook, 0x12a690, 0xa9bd7bfd);
+    const unsigned advanced = installChecked(module, advanceWindowHook, 0x12de60, 0xa9be7bfd);
+    const unsigned rearmed = installChecked(module, rearmWindowHook, 0x12e020, 0xb9403408);
     char header[256];
     const int size = std::snprintf(header, sizeof(header),
         "GROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n"
-        "GROOVE_DIAG native_hooks attached=%u evaluated=%u dispatched=%u\n",
+        "GROOVE_DIAG native_hooks attached=%u evaluated=%u dispatched=%u advanced=%u rearmed=%u\n",
         (unsigned long long)session,
         (unsigned long long)hk::svc::getSystemTickFrequency(),
         stage, wait, hoop, sfx, bgm, subscene, cues, threads, gameplay,
-        attached, evaluated, dispatched);
+        attached, evaluated, dispatched, advanced, rearmed);
     if (size > 0 && size < static_cast<int>(sizeof(header))) {
         emit(header, size);
         __builtin_memcpy(storedSessionHeader, header, size);

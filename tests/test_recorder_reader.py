@@ -24,6 +24,35 @@ class ReaderTests(unittest.TestCase):
             self.assertIsNone(event["musical_beat"])
             self.assertIsNone(event["player_input"])
 
+    def test_window_identity_rearm_gaps_and_dispatch_context(self):
+        records = decode([
+            "GROOVE_SESSION3 44 100 1 1 1 1 1 1 1 1 84\n",
+            "GROOVE_ACTION 44 1 100 10 54 20 1 0 0 0\n",
+            "GROOVE_NATIVE2 44 2 101 10 10 0 3 -960 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 3 102 10 13 0 52 0 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 4 103 10 11 0 1 20 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 5 104 10 12 0 7 0 3 1 0 0 0\n",
+            "GROOVE_NATIVE2 44 6 105 10 14 0 480 -460 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 7 106 10 11 0 0 -200 -100 -75 75 100 77\n",
+            "GROOVE_NATIVE2 44 9 107 10 11 0 0 -200 -100 -75 75 100 77\n",
+        ])
+        action, attached, changed, evaluated, dispatched, rearmed, next_eval, after_gap = [
+            next(records) for _ in range(8)
+        ]
+        self.assertEqual(attached["correlation"]["previous_gameplay_sequence_in_stage"], action["sequence"])
+        self.assertEqual(changed["parameters"]["flags_before"], 4)
+        self.assertEqual(changed["parameters"]["flags_after"], 6)
+        self.assertEqual(evaluated["correlation"]["window_lifetime_start_sequence"], 2)
+        self.assertEqual(dispatched["correlation"]["preceding_evaluations_since_previous_dispatch_for_id"], 1)
+        self.assertEqual(next_eval["correlation"]["window_lifetime_start_sequence"], rearmed["sequence"])
+        self.assertIsNone(after_gap["correlation"]["window_lifetime_start_sequence"])
+        with self.assertRaises(StopIteration) as finished:
+            next(records)
+        stats = finished.exception.value[44]["native_input_statistics"]["10"]
+        self.assertEqual(stats["attached_thresholds:-100,-75,75,100"], 1)
+        self.assertEqual(stats["admission_code:0"], 2)
+        self.assertEqual(stats["window_lifetime_unresolved"], 1)
+
     def test_legacy_sessions_raw_fields_and_loss(self):
         records = decode([
             "prefix GROOVE_SESSION 44 19200000 1 1 1\n",

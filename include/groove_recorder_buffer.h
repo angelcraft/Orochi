@@ -15,6 +15,7 @@ struct Event {
     // Version 2 payload: e.g. SFX delay in ticks.
     std::int32_t auxiliary{};
     std::int64_t arguments[4]{};
+    std::uint64_t windowToken{};
 };
 
 template <std::size_t Capacity>
