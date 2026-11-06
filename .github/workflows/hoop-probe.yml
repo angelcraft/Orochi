@@ -3,7 +3,7 @@ name: Orochi experimental subsdk1
 on:
   workflow_dispatch:
   push:
-    branches: [experiment/hoop-probe, experiment/groove-recorder]
+    branches: [experiment/hoop-probe, experiment/groove-recorder, experiment/groove-recorder-universal]
 
 permissions:
   contents: read
@@ -25,7 +25,7 @@ jobs:
           docker pull "$image"
           docker image inspect --format '{{index .RepoDigests 0}}' "$image" | tee image-digest.txt
           mode=OROCHI_HOOP_PROBE
-          if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder ]]; then mode=OROCHI_RECORDER; fi
+          if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder* ]]; then mode=OROCHI_RECORDER; fi
           docker run --rm -e "OROCHI_MODE=$mode" -v "$PWD:/src" -w /src "$image" sh -ec '
             if [ "$OROCHI_MODE" = OROCHI_RECORDER ]; then
               clang++ -std=c++20 -Iinclude tests/recorder_buffer.cpp -o /tmp/recorder-buffer
