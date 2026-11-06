@@ -8,6 +8,13 @@
 #include "nn/fs.h"
 #include <cstdio>
 
+// Imports match the ThreadType overload used by the original main NSO.
+namespace nn::os {
+struct ThreadType;
+nn::Result CreateThread(ThreadType*, void (*)(void*), void*, void*, unsigned long, int);
+void StartThread(ThreadType*);
+}
+
 namespace {
 // Groove 1.0.0 (Build ID guarded below). All offsets come from Orochi's
 // existing symbols; none should be reused for another game update.
@@ -38,15 +45,17 @@ enum Kind : u32 {
 
 groove::Buffer<4096> buffer;
 std::atomic<u32> lastCreatedStage{kUnknown};
-std::atomic_flag draining = ATOMIC_FLAG_INIT;
+// The SDK owns the opaque thread object and initializes its TLS.
+alignas(0x1000) unsigned char writerStack[0x10000]{};
+alignas(0x1000) unsigned char writerThreadStorage[0x1000]{};
+bool writerStarted{};
+void writerMain(void*);
 u64 session{}, reportedLoss{};
 
-unsigned drainFrameCounter{};
 bool sdReady = false;
 bool sdMounted = false;
 char storedSessionHeader[256]{};
 int storedSessionHeaderLength{};
-bool sdWriteFailed{};
 std::atomic<u64> loopEntered{0};
 u64 dequeued{}, sdBatches{}, sdFailures{};
 
@@ -57,7 +66,7 @@ constexpr const char* kSdLog = "grooverec:/Orochi/groove-recorder.log";
 
 void diagnostic(const char* message);
 
-// Only called during the main-loop drain path. Never do SD I/O in a gameplay hook.
+// One writer at a time: initialization hands off to the SDK thread.
 bool appendFile(const char* data, int size) {
     if (!sdReady || size <= 0) return false;
     nn::fs::FileHandle file{};
@@ -72,6 +81,7 @@ bool appendFile(const char* data, int size) {
         nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
         const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
         written = nn::fs::WriteFile(file, fileSize, data, size, flush).IsSuccess();
+        if (!written) (void)nn::fs::SetFileSize(file, fileSize);
     }
     nn::fs::CloseFile(file);
     return written;
@@ -117,9 +127,7 @@ void reportPipeline(const char* phase) {
         (unsigned long long)buffer.accepted(), (unsigned long long)buffer.dropped(),
         (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures);
     if (size > 0 && size < static_cast<int>(sizeof(line))) {
-        // Write only to SD, and only from a deferred main-loop checkpoint.
-        // Avoid synchronous debug SVC output while the game is booting.
-        appendFile(line, size);
+        if (!appendFile(line, size)) ++sdFailures;
     }
 }
 
@@ -222,78 +230,80 @@ void recordGameplay(s32 command, s32 scene, Args... args) {
 
 #include "groove_gameplay_hooks.inc"
 
-// Keep formatting outside the timing-sensitive hooks. Emitting at most
-// 48 events every twelve loop calls bounds the work; the buffer counts losses.
 void drain() {
-    if (draining.test_and_set(std::memory_order_acquire)) return;
-    if ((++drainFrameCounter % 12) != 0) {
-        draining.clear(std::memory_order_release);
-        return;
-    }
-    char packet[48 * 192];
-    int used = 0;
-    for (int index = 0; index < 48; ++index) {
-        groove::Event event;
-        if (!buffer.pop(event)) break;
-        ++dequeued;
-        const int size = event.kind == GameplayCalled
-            ? std::snprintf(packet + used, sizeof(packet) - used,
-                "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
-                (unsigned long long)session, (unsigned long long)event.sequence,
-                (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
-                (long long)event.arguments[0], (long long)event.arguments[1],
-                (long long)event.arguments[2], (long long)event.arguments[3])
-            : std::snprintf(packet + used, sizeof(packet) - used,
-            "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
-            (unsigned long long)session,
-            (unsigned long long)event.sequence,
-            (unsigned long long)event.counter,
-            event.kind, event.stage, event.value,
-            event.threadTick, event.auxiliary);
-        if (size < 0 || size >= static_cast<int>(sizeof(packet) - used)) break;
-        used += size;
-    }
-    emit(packet, used);
-    if (sdReady && (storedSessionHeaderLength > 0 || used > 0)) {
-        if (storedSessionHeaderLength > 0 &&
-            appendFile(storedSessionHeader, storedSessionHeaderLength)) {
-            storedSessionHeaderLength = 0;
+    static char packet[48 * 192];
+    static int used = 0;
+    if (storedSessionHeaderLength > 0) {
+        if (!appendFile(storedSessionHeader, storedSessionHeaderLength)) {
+            ++sdFailures;
+            return;
         }
-        const bool failed = storedSessionHeaderLength > 0 ||
-                            (used > 0 && !appendFile(packet, used));
-        if (failed) ++sdFailures;
-        else if (used > 0) ++sdBatches;
-        if (failed && !sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_failed\n");
-        if (!failed && sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_recovered\n");
-        sdWriteFailed = failed;
+        storedSessionHeaderLength = 0;
+    }
+    if (used == 0) {
+        for (int index = 0; index < 48; ++index) {
+            groove::Event event;
+            if (!buffer.pop(event)) break;
+            ++dequeued;
+            const int size = event.kind == GameplayCalled
+                ? std::snprintf(packet + used, sizeof(packet) - used,
+                    "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
+                    (unsigned long long)session, (unsigned long long)event.sequence,
+                    (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
+                    (long long)event.arguments[0], (long long)event.arguments[1],
+                    (long long)event.arguments[2], (long long)event.arguments[3])
+                : std::snprintf(packet + used, sizeof(packet) - used,
+                "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
+                (unsigned long long)session,
+                (unsigned long long)event.sequence,
+                (unsigned long long)event.counter,
+                event.kind, event.stage, event.value,
+                event.threadTick, event.auxiliary);
+            if (size < 0 || size >= static_cast<int>(sizeof(packet) - used)) break;
+            used += size;
+        }
+    }
+    if (used > 0) {
+        if (!appendFile(packet, used)) {
+            ++sdFailures;
+            return;
+        }
+        ++sdBatches;
+        used = 0;
     }
     const u64 loss = buffer.dropped();
     if (loss != reportedLoss) {
-        const int size = std::snprintf(packet, sizeof(packet),
-            "GROOVE_LOST %llu %llu\n",
+        char line[96];
+        const int size = std::snprintf(line, sizeof(line), "GROOVE_LOST %llu %llu\n",
             (unsigned long long)session, (unsigned long long)loss);
-        if (size > 0 && size < static_cast<int>(sizeof(packet))) {
-            emit(packet, size);
-            if (storedSessionHeaderLength == 0) appendFile(packet, size);
-        }
-        reportedLoss = loss;
+        if (size > 0 && size < static_cast<int>(sizeof(line)) && appendFile(line, size))
+            reportedLoss = loss;
     }
-    const bool checkpoint = drainFrameCounter == 120 ||
-                            (drainFrameCounter > 120 && drainFrameCounter % 1800 == 0);
-    draining.clear(std::memory_order_release);
-    // No debug filesystem access during initHook or while the drain lock is held.
-    if (checkpoint && sdReady) reportPipeline("deferred");
+}
+
+void writerMain(void*) {
+    for (unsigned poll = 0;; ++poll) {
+        hk::svc::SleepThread(100000000);
+        drain();
+        if (poll == 0 || poll % 50 == 0) reportPipeline("writer");
+    }
 }
 
 HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
     if (!sdReady) initSdLogging();
     orig(argument);
+    if (sdReady && !writerStarted) {
+        auto* thread = reinterpret_cast<nn::os::ThreadType*>(writerThreadStorage);
+        writerStarted = nn::os::CreateThread(thread, writerMain, nullptr, writerStack,
+                                             sizeof(writerStack), 44).IsSuccess();
+        if (writerStarted) nn::os::StartThread(thread);
+        else diagnostic("GROOVE_DIAG writer_create_failed\n");
+    }
 };
 
 HkTrampoline loopHook = [](TrampolineStatic(), s32 argument) -> void {
     loopEntered.fetch_add(1, std::memory_order_relaxed);
     orig(argument);
-    drain();
 };
 
 void diagnostic(const char* message) {
@@ -313,10 +323,8 @@ extern "C" void hkMain() {
         return;
     }
     session = hk::svc::getSystemTick();
-    if (!installChecked(module, loopHook, kLoop, 0x900044a8)) {
+    if (!installChecked(module, loopHook, kLoop, 0x900044a8))
         diagnostic("GROOVE_DIAG main_loop_hook_rejected\n");
-        return;
-    }
     const unsigned stage = installChecked(module, stageHook, kStage, 0xa9bb7bfd);
     const unsigned wait = installChecked(module, waitHook, kWait, 0xb9427808);
     const unsigned sfx = installChecked(module, sfxHook, kScheduleSfx, 0xfc190fec);
