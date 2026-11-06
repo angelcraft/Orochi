@@ -41,3 +41,28 @@ The reader supports legacy records and v3 actions. Keep the gameplay catalog bes
 The mod **rusino - Looping the Rooms** on GameBanana, mod 701655, is a reference custom remix, but its downloadable contents have not yet been independently inspected. Do not assume its gameplay-cue layout from its title or screenshots.
 
 Source branch `experiment/groove-recorder-all-games`.
+
+
+## Minimal NPDM laboratory candidate (offline; NOT hardware validated)
+
+The existing original Groove NPDM is NOT in this repository, and no owner-supplied original NPDM has been provided to this conversation. GitHub Actions cannot create the user's exact NPDM override.
+
+When you have extracted `main.npdm` from your own Groove 1.0.0 install, you can inspect it locally:
+
+```sh
+python tools/npdm_one_svc.py original-main.npdm --report preflight.json
+```
+
+The verifier refuses other Title IDs, missing or duplicated SVC group descriptors, malformed extents, preexisting 0x74 grants, and unintended edits. It modifies only the 0x74 bit in the pre-existing **ACI0** and **ACID** SVC group 4 masks. It does not re-sign ACID; an override's acceptance by Atmosphère and the kernel must still be demonstrated.
+
+To generate an explicitly experimental local ZIP rather than installing anything automatically, use:
+
+```sh
+python -m tools.build_recorder_lab_zip original-main.npdm subsdk1 groove-recorder-lab.zip --lab-ack
+```
+
+If you mount the Switch SD at e.g. `E:\\`, add `--sd-root E:\\` to refuse any package creation when `subsdk1` or `main.npdm` already exists in the destination folder. The command only **reads** that SD; it does not install or delete anything. The resulting ZIP contains proprietary metadata derived from your dump; **keep it private** and do not upload it to GitHub.
+
+No installer is marked safe yet. Test only after backing up emuMMC/SD and auditing existing Atmosphère overrides. The earlier aro-35 module uses the same `subsdk1` slot. A bad hook, permission failure, or NPDM rejection may prevent the game from launching; revert by removing the two experimental files or restoring the prior override.
+
+Based on Atmosphère `ldr_meta.cpp`: the loader can load SD override metadata and, for an application, validate original metadata to obtain verification data. This is **evidence for a possible override route**, not proof that the exact modified KAC will load on the user's firmware.
