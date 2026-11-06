@@ -57,7 +57,8 @@ jobs:
             cp tools/groove_gameplay_catalog.json artifacts/
             cp tools/npdm_one_svc.py artifacts/
             cp tools/build_recorder_lab_zip.py artifacts/
-            catalog_files=(groove_gameplay_catalog.json npdm_one_svc.py build_recorder_lab_zip.py)
+            cp tools/preparar_recorder_windows.cmd artifacts/
+            catalog_files=(groove_gameplay_catalog.json npdm_one_svc.py build_recorder_lab_zip.py preparar_recorder_windows.cmd)
           fi
           (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md ${catalog_files[@]} > SHA256SUMS)
       - uses: actions/upload-artifact@v7
