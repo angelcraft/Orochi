@@ -10,14 +10,20 @@ constexpr unsigned char kBuildId[] = {
     0xa2, 0xe3, 0x7c, 0xe3, 0xaa, 0x4c, 0xaa, 0x0c,
 };
 ptr mainBase;
+
+template <size N>
+void trace(const char (&message)[N]) {
+    (void)hk::svc::OutputDebugString(message, N - 1);
+}
 }
 
-extern "C" unsigned hoopProbeStop(void* thread, char* stage) {
+extern "C" __attribute__((used, noinline)) unsigned hoopProbeStop(void* thread, char* stage) {
     auto stop = reinterpret_cast<unsigned (*)(void*)>(mainBase + kStop);
     const unsigned result = stop(thread);
     if ((result & 1u) == 0) {
         auto hoop = reinterpret_cast<void (*)(void*, void*, int)>(mainBase + kHoop);
         hoop(stage + kRingSceneOffset, thread, -1);
+        trace("Orochi Hoop: extra call returned at the beat-22 site");
     }
     return result;
 }
@@ -41,6 +47,9 @@ extern "C" void hkMain() {
     const auto to = reinterpret_cast<ptr>(&hoopProbeBridge);
     const auto distance = to >= from ? to - from : from - to;
     if ((distance & 3) || distance > hk::hook::cMaxBranchDistance) return;
-    (void)hk::hook::writeBranchLinkAtMainOffset(kStopSite, &hoopProbeBridge);
+    if (hk::hook::writeBranchLinkAtMainOffset(kStopSite, &hoopProbeBridge).failed())
+        trace("Orochi Hoop: hook write failed");
+    else
+        trace("Orochi Hoop: hook installed");
 }
 
