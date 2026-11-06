@@ -25,7 +25,7 @@ class Buffer {
     std::atomic<std::uint64_t> lost{0};
     Event events[Capacity]{};
     std::size_t head{}, count{};
-    std::uint64_t sequence{};
+    std::atomic<std::uint64_t> sequence{0};
 
 public:
     void push(Event event) {
@@ -55,6 +55,7 @@ public:
         return found;
     }
 
+    std::uint64_t accepted() const { return sequence.load(std::memory_order_relaxed); }
     std::uint64_t dropped() const { return lost.load(std::memory_order_relaxed); }
 };
 }

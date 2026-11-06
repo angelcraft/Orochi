@@ -47,6 +47,10 @@ bool sdMounted = false;
 char storedSessionHeader[256]{};
 int storedSessionHeaderLength{};
 bool sdWriteFailed{};
+std::atomic<u64> loopEntered{0};
+u64 dequeued{}, sdBatches{}, sdFailures{};
+
+void reportPipeline(const char* phase);
 constexpr const char* kSdMount = "grooverec";
 constexpr const char* kSdFolder = "grooverec:/Orochi";
 constexpr const char* kSdLog = "grooverec:/Orochi/groove-recorder.log";
@@ -86,6 +90,7 @@ void initSdLogging() {
         nn::fs::CloseFile(file);
         sdReady = true;
         diagnostic("GROOVE_DIAG sd_log_opened\n");
+<<<<<<< HEAD
         // Persist a header immediately: a zero-length log after play means
         // we could not write anything, regardless of gameplay-hook coverage.
         if (storedSessionHeaderLength > 0 &&
@@ -94,6 +99,11 @@ void initSdLogging() {
             diagnostic("GROOVE_DIAG session_header_written\n");
         } else {
             diagnostic("GROOVE_DIAG session_header_write_failed\n");
+=======
+        if (!draining.test_and_set(std::memory_order_acquire)) {
+            reportPipeline("sd_open");
+            draining.clear(std::memory_order_release);
+>>>>>>> c6b0b29 (Trace recorder loop, queue and SD drain)
         }
     } else {
         diagnostic("GROOVE_DIAG sd_log_open_failed\n");
@@ -103,6 +113,19 @@ void initSdLogging() {
 
 void emit(const char* text, int size) {
     if (size > 0) (void)hk::svc::OutputDebugString(text, size);
+}
+
+void reportPipeline(const char* phase) {
+    char line[256];
+    const int size = std::snprintf(line, sizeof(line),
+        "GROOVE_DIAG pipeline phase=%s session=%llu loop=%llu queued=%llu dropped=%llu dequeued=%llu sd_batches=%llu sd_failures=%llu\n",
+        phase, (unsigned long long)session, (unsigned long long)loopEntered.load(std::memory_order_relaxed),
+        (unsigned long long)buffer.accepted(), (unsigned long long)buffer.dropped(),
+        (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures);
+    if (size > 0 && size < static_cast<int>(sizeof(line))) {
+        emit(line, size);
+        appendFile(line, size);
+    }
 }
 
 // Intentionally do not dereference SeqThread+0x278: that offset has not been
@@ -217,6 +240,7 @@ void drain() {
     for (int index = 0; index < 48; ++index) {
         groove::Event event;
         if (!buffer.pop(event)) break;
+        ++dequeued;
         const int size = event.kind == GameplayCalled
             ? std::snprintf(packet + used, sizeof(packet) - used,
                 "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
@@ -242,6 +266,8 @@ void drain() {
         }
         const bool failed = storedSessionHeaderLength > 0 ||
                             (used > 0 && !appendFile(packet, used));
+        if (failed) ++sdFailures;
+        else if (used > 0) ++sdBatches;
         if (failed && !sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_failed\n");
         if (!failed && sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_recovered\n");
         sdWriteFailed = failed;
@@ -257,6 +283,8 @@ void drain() {
         }
         reportedLoss = loss;
     }
+    if (drainFrameCounter == 12 || drainFrameCounter % 120 == 0)
+        reportPipeline("drain");
     draining.clear(std::memory_order_release);
 }
 
@@ -266,6 +294,8 @@ HkTrampoline initHook = [](TrampolineStatic(), u64* argument) -> void {
 };
 
 HkTrampoline loopHook = [](TrampolineStatic(), s32 argument) -> void {
+    if (loopEntered.fetch_add(1, std::memory_order_relaxed) == 0)
+        diagnostic("GROOVE_DIAG loop_entered\n");
     orig(argument);
     drain();
 };
