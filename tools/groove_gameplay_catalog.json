@@ -1,0 +1,881 @@
+{
+  "schema_version": 1,
+  "target": "Rhythm Heaven Groove 1.0.0",
+  "build_id_prefix": "03ff4a3bec96bde3a2e37ce3aa4caa0c",
+  "generated_from": [
+    "include/aloha/Scene.h",
+    "syms/aloha/scene.sym"
+  ],
+  "coverage_note": "Catalog of documented native commands, not hardware-validated input or judgement coverage. Scene IDs apply to StageRemix scene classes; SceneSkater is outside that mapping.",
+  "commands": [
+    {
+      "id": 1,
+      "scene": "SceneBacteria",
+      "scene_id": 0,
+      "action": "regularAerobics",
+      "main_offset": "0x146120",
+      "arguments": [
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 2,
+      "scene": "SceneBacteria",
+      "scene_id": 0,
+      "action": "slowAerobics",
+      "main_offset": "0x146b50",
+      "arguments": [
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 3,
+      "scene": "SceneBacteria",
+      "scene_id": 0,
+      "action": "quickAerobics",
+      "main_offset": "0x147cd0",
+      "arguments": []
+    },
+    {
+      "id": 4,
+      "scene": "SceneBacteria",
+      "scene_id": 0,
+      "action": "stopAerobics",
+      "main_offset": "0x1473a0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 5,
+      "scene": "SceneBirds",
+      "scene_id": 1,
+      "action": "pattern",
+      "main_offset": "0x14a3e0",
+      "arguments": [
+        "const char*"
+      ]
+    },
+    {
+      "id": 6,
+      "scene": "SceneBrush",
+      "scene_id": 2,
+      "action": "continuousSweeping",
+      "main_offset": "0x15a560",
+      "arguments": [
+        "int",
+        "bool",
+        "bool",
+        "bool"
+      ]
+    },
+    {
+      "id": 7,
+      "scene": "SceneBrush",
+      "scene_id": 2,
+      "action": "spinSpin",
+      "main_offset": "0x15af40",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 8,
+      "scene": "SceneBrush",
+      "scene_id": 2,
+      "action": "stopSpinning",
+      "main_offset": "0x15b2e0",
+      "arguments": []
+    },
+    {
+      "id": 9,
+      "scene": "SceneBrush",
+      "scene_id": 2,
+      "action": "sweepThree",
+      "main_offset": "0x15ab00",
+      "arguments": []
+    },
+    {
+      "id": 10,
+      "scene": "SceneCars",
+      "scene_id": 3,
+      "action": "accelerate",
+      "main_offset": "0x1601d0",
+      "arguments": [
+        "bool",
+        "bool"
+      ]
+    },
+    {
+      "id": 11,
+      "scene": "SceneCars",
+      "scene_id": 3,
+      "action": "brake",
+      "main_offset": "0x1608f0",
+      "arguments": [
+        "long",
+        "long",
+        "bool"
+      ]
+    },
+    {
+      "id": 12,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "countIn",
+      "main_offset": "0x1646f0",
+      "arguments": []
+    },
+    {
+      "id": 13,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "countOut",
+      "main_offset": "0x164b70",
+      "arguments": []
+    },
+    {
+      "id": 14,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "singleHighFive",
+      "main_offset": "0x1632d0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 15,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "preDoubleHighFive",
+      "main_offset": "0x1634d0",
+      "arguments": []
+    },
+    {
+      "id": 16,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "doubleHighFive",
+      "main_offset": "0x163b30",
+      "arguments": []
+    },
+    {
+      "id": 17,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "preTripleHighFive",
+      "main_offset": "0x1634f0",
+      "arguments": []
+    },
+    {
+      "id": 18,
+      "scene": "SceneClap",
+      "scene_id": 4,
+      "action": "tripleHighFive",
+      "main_offset": "0x1642f0",
+      "arguments": []
+    },
+    {
+      "id": 19,
+      "scene": "SceneCooking",
+      "scene_id": 5,
+      "action": "singleVeggie",
+      "main_offset": "0x178880",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 20,
+      "scene": "SceneCooking",
+      "scene_id": 5,
+      "action": "broccoli",
+      "main_offset": "0x178dc0",
+      "arguments": [
+        "int",
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 21,
+      "scene": "SceneCrab",
+      "scene_id": 6,
+      "action": "macaron",
+      "main_offset": "0x17bfc0",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 22,
+      "scene": "SceneCrab",
+      "scene_id": 6,
+      "action": "mangosteen",
+      "main_offset": "0x17c770",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 23,
+      "scene": "SceneCrab",
+      "scene_id": 6,
+      "action": "favaBean",
+      "main_offset": "0x17d0d0",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 24,
+      "scene": "SceneDancer",
+      "scene_id": 7,
+      "action": "startDance",
+      "main_offset": "0x181c70",
+      "arguments": [
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ]
+    },
+    {
+      "id": 25,
+      "scene": "SceneDancer",
+      "scene_id": 7,
+      "action": "startTurnAndDance",
+      "main_offset": "0x181210",
+      "arguments": [
+        "int",
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 26,
+      "scene": "SceneDancer",
+      "scene_id": 7,
+      "action": "fastTurn",
+      "main_offset": "0x182460",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 27,
+      "scene": "SceneFlydisc",
+      "scene_id": 8,
+      "action": "throwDisc",
+      "main_offset": "0x18d3f0",
+      "arguments": [
+        "int",
+        "int",
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 28,
+      "scene": "SceneGrasp",
+      "scene_id": 9,
+      "action": "throwObject",
+      "main_offset": "0x1a4070",
+      "arguments": [
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 29,
+      "scene": "SceneGrasp",
+      "scene_id": 9,
+      "action": "doubleCatchA",
+      "main_offset": "0x1a48c0",
+      "arguments": []
+    },
+    {
+      "id": 30,
+      "scene": "SceneGrasp",
+      "scene_id": 9,
+      "action": "doubleCatchB",
+      "main_offset": "0x1a50b0",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 31,
+      "scene": "SceneGuardian",
+      "scene_id": 10,
+      "action": "normalMeteor",
+      "main_offset": "0x1a89e0",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 32,
+      "scene": "SceneGuardian",
+      "scene_id": 10,
+      "action": "nearMeteor",
+      "main_offset": "0x1a82f0",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 33,
+      "scene": "SceneGuardian",
+      "scene_id": 10,
+      "action": "farMeteor",
+      "main_offset": "0x1a9120",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 34,
+      "scene": "SceneHammer",
+      "scene_id": 11,
+      "action": "spawnRedCan",
+      "main_offset": "0x1ab410",
+      "arguments": [
+        "int",
+        "bool",
+        "int"
+      ]
+    },
+    {
+      "id": 35,
+      "scene": "SceneHammer",
+      "scene_id": 11,
+      "action": "spawnBlueCan",
+      "main_offset": "0x1abcb0",
+      "arguments": [
+        "int",
+        "bool",
+        "int"
+      ]
+    },
+    {
+      "id": 36,
+      "scene": "SceneHungry",
+      "scene_id": 12,
+      "action": "spawnFlower",
+      "main_offset": "0x1af800",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 37,
+      "scene": "SceneHurdle",
+      "scene_id": 13,
+      "action": "spawnObstacle",
+      "main_offset": "0x1b1fc0",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 38,
+      "scene": "SceneHurdle",
+      "scene_id": 13,
+      "action": "spawnFlowers",
+      "main_offset": "0x1b24d0",
+      "arguments": []
+    },
+    {
+      "id": 39,
+      "scene": "SceneInsect",
+      "scene_id": 14,
+      "action": "butterfly",
+      "main_offset": "0x1b54c0",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 40,
+      "scene": "SceneInsect",
+      "scene_id": 14,
+      "action": "grasshopper",
+      "main_offset": "0x1b5a60",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 41,
+      "scene": "SceneInsect",
+      "scene_id": 14,
+      "action": "dragonfly",
+      "main_offset": "0x1b60f0",
+      "arguments": [
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 42,
+      "scene": "SceneKaeru",
+      "scene_id": 15,
+      "action": "greenFrog",
+      "main_offset": "0x1b8db0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 43,
+      "scene": "SceneKaeru",
+      "scene_id": 15,
+      "action": "redFrog",
+      "main_offset": "0x1b8f70",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 44,
+      "scene": "SceneMoon",
+      "scene_id": 16,
+      "action": "greenSneeze",
+      "main_offset": "0x1db630",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 45,
+      "scene": "SceneMoon",
+      "scene_id": 16,
+      "action": "greenWindup",
+      "main_offset": "0x1dc030",
+      "arguments": []
+    },
+    {
+      "id": 46,
+      "scene": "SceneMoon",
+      "scene_id": 16,
+      "action": "redSneeze",
+      "main_offset": "0x1dbbc0",
+      "arguments": [
+        "bool"
+      ]
+    },
+    {
+      "id": 47,
+      "scene": "SceneParasol",
+      "scene_id": 17,
+      "action": "cue",
+      "main_offset": "0x204970",
+      "arguments": [
+        "int",
+        "int",
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 48,
+      "scene": "SceneParasol",
+      "scene_id": 17,
+      "action": "openTogether",
+      "main_offset": "0x205030",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 49,
+      "scene": "SceneParasol",
+      "scene_id": 17,
+      "action": "encore",
+      "main_offset": "0x2057d0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 50,
+      "scene": "ScenePumpup",
+      "scene_id": 18,
+      "action": "apple",
+      "main_offset": "0x209b80",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 51,
+      "scene": "ScenePumpup",
+      "scene_id": 18,
+      "action": "lemon",
+      "main_offset": "0x20a170",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 52,
+      "scene": "ScenePutilabo",
+      "scene_id": 19,
+      "action": "regularBubble",
+      "main_offset": "0x20bf90",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 53,
+      "scene": "ScenePutilabo",
+      "scene_id": 19,
+      "action": "hardBubble",
+      "main_offset": "0x20c190",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 54,
+      "scene": "SceneRing",
+      "scene_id": 20,
+      "action": "hoop",
+      "main_offset": "0x217960",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 55,
+      "scene": "SceneRolling",
+      "scene_id": 21,
+      "action": "roll",
+      "main_offset": "0x223350",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 56,
+      "scene": "SceneRolling",
+      "scene_id": 21,
+      "action": "hop",
+      "main_offset": "0x222fa0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 57,
+      "scene": "SceneRope",
+      "scene_id": 22,
+      "action": "singleJump",
+      "main_offset": "0x226aa0",
+      "arguments": [
+        "int",
+        "bool"
+      ]
+    },
+    {
+      "id": 58,
+      "scene": "SceneRope",
+      "scene_id": 22,
+      "action": "doubleUnder",
+      "main_offset": "0x2276a0",
+      "arguments": [
+        "int",
+        "bool",
+        "bool"
+      ]
+    },
+    {
+      "id": 59,
+      "scene": "SceneSamurai",
+      "scene_id": 23,
+      "action": "singleSlice",
+      "main_offset": "0x22ad50",
+      "arguments": [
+        "long",
+        "long"
+      ]
+    },
+    {
+      "id": 60,
+      "scene": "SceneSamurai",
+      "scene_id": 23,
+      "action": "doubleSlice",
+      "main_offset": "0x22aff0",
+      "arguments": [
+        "long",
+        "long"
+      ]
+    },
+    {
+      "id": 61,
+      "scene": "SceneShinkai",
+      "scene_id": 30,
+      "action": "singleRow",
+      "main_offset": "0x22e330",
+      "arguments": [
+        "long",
+        "const char*",
+        "const char*"
+      ]
+    },
+    {
+      "id": 62,
+      "scene": "SceneShinkai",
+      "scene_id": 30,
+      "action": "tripleRow",
+      "main_offset": "0x22e6d0",
+      "arguments": [
+        "long",
+        "const char*",
+        "const char*"
+      ]
+    },
+    {
+      "id": 63,
+      "scene": "SceneSoccer",
+      "scene_id": 24,
+      "action": "kick",
+      "main_offset": "0x246760",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 64,
+      "scene": "SceneSoccer",
+      "scene_id": 24,
+      "action": "trapKick",
+      "main_offset": "0x246b80",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 65,
+      "scene": "SceneSoccer",
+      "scene_id": 24,
+      "action": "trapJumpKick",
+      "main_offset": "0x246ff0",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 66,
+      "scene": "SceneSoftcatch",
+      "scene_id": 25,
+      "action": "pudding",
+      "main_offset": "0x248b70",
+      "arguments": [
+        "long",
+        "int"
+      ]
+    },
+    {
+      "id": 67,
+      "scene": "SceneTalk",
+      "scene_id": 26,
+      "action": "bomBom",
+      "main_offset": "0x255100",
+      "arguments": []
+    },
+    {
+      "id": 68,
+      "scene": "SceneTalk",
+      "scene_id": 26,
+      "action": "cha",
+      "main_offset": "0x254a70",
+      "arguments": []
+    },
+    {
+      "id": 69,
+      "scene": "SceneTalk",
+      "scene_id": 26,
+      "action": "bomCha",
+      "main_offset": "0x2556c0",
+      "arguments": []
+    },
+    {
+      "id": 70,
+      "scene": "SceneTheA",
+      "scene_id": 27,
+      "action": "word",
+      "main_offset": "0x278fe0",
+      "arguments": [
+        "const char*",
+        "float",
+        "void*",
+        "const char*"
+      ]
+    },
+    {
+      "id": 71,
+      "scene": "SceneThunder",
+      "scene_id": 28,
+      "action": "yellowLightning",
+      "main_offset": "0x27dba0",
+      "arguments": [
+        "int",
+        "long"
+      ]
+    },
+    {
+      "id": 72,
+      "scene": "SceneThunder",
+      "scene_id": 28,
+      "action": "yellowLightningFast",
+      "main_offset": "0x27e130",
+      "arguments": [
+        "long"
+      ]
+    },
+    {
+      "id": 73,
+      "scene": "SceneThunder",
+      "scene_id": 28,
+      "action": "pinkLightning",
+      "main_offset": "0x27e6c0",
+      "arguments": [
+        "int",
+        "long"
+      ]
+    },
+    {
+      "id": 74,
+      "scene": "SceneThunder",
+      "scene_id": 28,
+      "action": "pinkLightningFast",
+      "main_offset": "0x27ec00",
+      "arguments": [
+        "long"
+      ]
+    },
+    {
+      "id": 75,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "quickBoth",
+      "main_offset": "0x2aa6f0",
+      "arguments": []
+    },
+    {
+      "id": 76,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "quickLeft",
+      "main_offset": "0x2aa4f0",
+      "arguments": []
+    },
+    {
+      "id": 77,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "quickRight",
+      "main_offset": "0x2aa2f0",
+      "arguments": []
+    },
+    {
+      "id": 78,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "slowBoth",
+      "main_offset": "0x2a9b00",
+      "arguments": []
+    },
+    {
+      "id": 79,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "slowLeft",
+      "main_offset": "0x2a9900",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 80,
+      "scene": "SceneWiper",
+      "scene_id": 29,
+      "action": "slowRight",
+      "main_offset": "0x2a9700",
+      "arguments": [
+        "int"
+      ]
+    },
+    {
+      "id": 81,
+      "scene": "SceneSkater",
+      "scene_id": null,
+      "action": "initGround",
+      "main_offset": "0x23db30",
+      "arguments": [
+        "int",
+        "int",
+        "char"
+      ]
+    },
+    {
+      "id": 82,
+      "scene": "SceneSkater",
+      "scene_id": null,
+      "action": "spawnSugarCubes",
+      "main_offset": "0x23d600",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 83,
+      "scene": "SceneSkater",
+      "scene_id": null,
+      "action": "spawnEgg",
+      "main_offset": "0x23d790",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    },
+    {
+      "id": 84,
+      "scene": "SceneSkater",
+      "scene_id": null,
+      "action": "spawnCookieTower",
+      "main_offset": "0x23d920",
+      "arguments": [
+        "int",
+        "int"
+      ]
+    }
+  ]
+}
