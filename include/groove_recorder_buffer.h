@@ -10,7 +10,10 @@ struct Event {
     std::uint32_t kind;
     std::uint32_t stage;
     std::int32_t value;
+    // Unknown raw thread field, not a verified musical tick.
     std::uint32_t threadTick;
+    // Version 2 payload: e.g. SFX delay in ticks.
+    std::int32_t auxiliary{};
 };
 
 template <std::size_t Capacity>
