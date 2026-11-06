@@ -28,7 +28,7 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder* ]]; then mode=OROCHI_RECORDER; fi
           docker run --rm -e "OROCHI_MODE=$mode" -v "$PWD:/src" -w /src "$image" sh -ec '
             if [ "$OROCHI_MODE" = OROCHI_RECORDER ]; then
-              clang++ -std=c++20 -Iinclude tests/recorder_buffer.cpp -o /tmp/recorder-buffer
+              clang++ -std=c++20 -pthread -Iinclude tests/recorder_buffer.cpp -o /tmp/recorder-buffer
               /tmp/recorder-buffer
               python -m unittest discover -s tests -p "test_*.py"
             fi
@@ -55,6 +55,7 @@ jobs:
           catalog_files=()
           if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then
             cp tools/groove_gameplay_catalog.json artifacts/
+            if [[ -f RECORDER_STABILITY.md ]]; then cp RECORDER_STABILITY.md artifacts/; fi
             cp tools/npdm_one_svc.py artifacts/
             cp tools/build_recorder_lab_zip.py artifacts/
             cp tools/preparar_recorder_windows.cmd artifacts/

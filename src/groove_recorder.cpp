@@ -1,4 +1,5 @@
 #include "groove_recorder_buffer.h"
+#include "groove_recorder_writer.h"
 #include "hk/hook/Trampoline.h"
 #include "hk/svc/cpu.h"
 #include "aloha/WavMark.h"
@@ -60,7 +61,10 @@ bool sdReady = false;
 bool sdMounted = false;
 char storedSessionHeader[256]{};
 int storedSessionHeaderLength{};
-u64 dequeued{}, sdBatches{}, sdFailures{};
+u64 dequeued{}, sdBatches{}, sdFailures{}, serializationFailures{};
+groove::AppendState appendState;
+
+u64 lostEvents() { return buffer.dropped() + serializationFailures; }
 
 void reportPipeline(const char* phase);
 constexpr const char* kSdMount = "grooverec";
@@ -77,15 +81,13 @@ bool appendFile(const char* data, int size) {
     // Match Orochi's original known writer instead of relying on append mode.
     if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsFailure())
         return false;
-    s64 fileSize = 0;
-    bool written = false;
-    if (nn::fs::GetFileSize(&fileSize, file).IsSuccess() &&
-        fileSize >= 0 && fileSize <= 0x7fffffffffffffffLL - size &&
-        nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
-        const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
-        written = nn::fs::WriteFile(file, fileSize, data, size, flush).IsSuccess();
-        if (!written) (void)nn::fs::SetFileSize(file, fileSize);
-    }
+    const bool written = appendState.append(size,
+        [&](s64& end) { return nn::fs::GetFileSize(&end, file).IsSuccess(); },
+        [&](s64 end) { return nn::fs::SetFileSize(file, end).IsSuccess(); },
+        [&](s64 end) {
+            const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
+            return nn::fs::WriteFile(file, end, data, size, flush).IsSuccess();
+        });
     nn::fs::CloseFile(file);
     return written;
 }
@@ -110,6 +112,7 @@ void initSdLogging() {
             storedSessionHeaderLength = 0;
             diagnostic("GROOVE_DIAG session_header_written\n");
         } else {
+            ++sdFailures;
             diagnostic("GROOVE_DIAG session_header_write_failed\n");
         }
     } else {
@@ -123,12 +126,16 @@ void emit(const char* text, int size) {
 }
 
 void reportPipeline(const char* phase) {
-    char line[256];
+    char line[384];
+    const u64 busy = buffer.droppedBusy(), full = buffer.droppedFull();
     const int size = std::snprintf(line, sizeof(line),
-        "GROOVE_DIAG pipeline phase=%s session=%llu queued=%llu dropped=%llu dequeued=%llu sd_batches=%llu sd_failures=%llu\n",
+        "GROOVE_DIAG pipeline phase=%s session=%llu queued=%llu dropped=%llu dequeued=%llu sd_batches=%llu sd_failures=%llu "
+        "dropped_busy=%llu dropped_full=%llu serialization_failures=%llu\n",
         phase, (unsigned long long)session,
-        (unsigned long long)buffer.accepted(), (unsigned long long)buffer.dropped(),
-        (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures);
+        (unsigned long long)buffer.accepted(), (unsigned long long)(busy + full + serializationFailures),
+        (unsigned long long)dequeued, (unsigned long long)sdBatches, (unsigned long long)sdFailures,
+        (unsigned long long)busy, (unsigned long long)full,
+        (unsigned long long)serializationFailures);
     if (size > 0 && size < static_cast<int>(sizeof(line))) {
         if (!appendFile(line, size)) ++sdFailures;
     }
@@ -302,78 +309,92 @@ HkTrampoline rearmWindowHook = [](TrampolineStatic(), void* window, s32 delta) -
 
 #include "groove_gameplay_hooks.inc"
 
-void drain() {
-    static char packet[48 * 224];
-    static int used = 0;
+int formatEvent(char* line, size_t capacity, const groove::Event& event) {
+    if (event.kind == GameplayCalled) {
+        return std::snprintf(line, capacity,
+            "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
+            (unsigned long long)session, (unsigned long long)event.sequence,
+            (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
+            (long long)event.arguments[0], (long long)event.arguments[1],
+            (long long)event.arguments[2], (long long)event.arguments[3]);
+    } else if (event.kind == WindowAttached ||
+               event.kind == WindowEvaluated ||
+               event.kind == InputDispatched || event.kind == WindowStateChanged ||
+               event.kind == WindowRearmed) {
+        // NATIVE2 adds an opaque token. Zero on dispatch, which has no window pointer.
+        return std::snprintf(line, capacity,
+            "GROOVE_NATIVE2 %llu %llu %llu %u %u %d %d %d %lld %lld %lld %lld %llu\n",
+            (unsigned long long)session, (unsigned long long)event.sequence,
+            (unsigned long long)event.counter, event.stage, event.kind,
+            event.value, event.auxiliary, (int)(s32)event.threadTick,
+            (long long)event.arguments[0], (long long)event.arguments[1],
+            (long long)event.arguments[2], (long long)event.arguments[3],
+            (unsigned long long)event.windowToken);
+    } else {
+        return std::snprintf(line, capacity,
+            "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
+            (unsigned long long)session,
+            (unsigned long long)event.sequence,
+            (unsigned long long)event.counter,
+            event.kind, event.stage, event.value,
+            event.threadTick, event.auxiliary);
+    }
+}
+
+bool drain() {
+    constexpr int batchSize = 48;
+    constexpr int maxBatchesPerPoll = 4;
+    static groove::Packet<batchSize, 224> packet;
     if (storedSessionHeaderLength > 0) {
         if (!appendFile(storedSessionHeader, storedSessionHeaderLength)) {
             ++sdFailures;
-            return;
+            return false;
         }
         storedSessionHeaderLength = 0;
     }
-    if (used == 0) {
-        for (int index = 0; index < 48; ++index) {
+    for (int batch = 0; batch < maxBatchesPerPoll; ++batch) {
+        int taken = 0;
+        if (packet.empty()) {
             groove::Event event;
-            if (!buffer.pop(event)) break;
-            ++dequeued;
-            int size = 0;
-            if (event.kind == GameplayCalled) {
-                size = std::snprintf(packet + used, sizeof(packet) - used,
-                    "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
-                    (unsigned long long)session, (unsigned long long)event.sequence,
-                    (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
-                    (long long)event.arguments[0], (long long)event.arguments[1],
-                    (long long)event.arguments[2], (long long)event.arguments[3]);
-            } else if (event.kind == WindowAttached ||
-                       event.kind == WindowEvaluated ||
-                       event.kind == InputDispatched || event.kind == WindowStateChanged ||
-                       event.kind == WindowRearmed) {
-                // NATIVE2 adds an opaque token. Zero on dispatch, which has no window pointer.
-                size = std::snprintf(packet + used, sizeof(packet) - used,
-                    "GROOVE_NATIVE2 %llu %llu %llu %u %u %d %d %d %lld %lld %lld %lld %llu\n",
-                    (unsigned long long)session, (unsigned long long)event.sequence,
-                    (unsigned long long)event.counter, event.stage, event.kind,
-                    event.value, event.auxiliary, (int)(s32)event.threadTick,
-                    (long long)event.arguments[0], (long long)event.arguments[1],
-                    (long long)event.arguments[2], (long long)event.arguments[3],
-                    (unsigned long long)event.windowToken);
-            } else {
-                size = std::snprintf(packet + used, sizeof(packet) - used,
-                    "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
-                    (unsigned long long)session,
-                    (unsigned long long)event.sequence,
-                    (unsigned long long)event.counter,
-                    event.kind, event.stage, event.value,
-                    event.threadTick, event.auxiliary);
+            while (taken < batchSize && buffer.pop(event)) {
+                ++taken;
+                ++dequeued;
+                if (!packet.add([&](char* line, size_t size) { return formatEvent(line, size, event); }))
+                    ++serializationFailures;
             }
-            if (size < 0 || size >= static_cast<int>(sizeof(packet) - used)) break;
-            used += size;
+        } else {
+            // A pending packet occupies this slot. A successful retry allows
+            // the next slot to collect fresh events without waiting a poll.
+            taken = batchSize;
         }
-    }
-    if (used > 0) {
-        if (!appendFile(packet, used)) {
-            ++sdFailures;
-            return;
+        if (!packet.empty()) {
+            if (!packet.flush(appendFile)) {
+                ++sdFailures;
+                return false;
+            }
+            ++sdBatches;
         }
-        ++sdBatches;
-        used = 0;
+        if (taken < batchSize) break;
     }
-    const u64 loss = buffer.dropped();
+    const u64 loss = lostEvents();
     if (loss != reportedLoss) {
         char line[96];
         const int size = std::snprintf(line, sizeof(line), "GROOVE_LOST %llu %llu\n",
             (unsigned long long)session, (unsigned long long)loss);
-        if (size > 0 && size < static_cast<int>(sizeof(line)) && appendFile(line, size))
-            reportedLoss = loss;
+        if (size <= 0 || size >= static_cast<int>(sizeof(line))) return false;
+        if (!appendFile(line, size)) {
+            ++sdFailures;
+            return false;
+        }
+        reportedLoss = loss;
     }
+    return true;
 }
 
 void writerMain(void*) {
     for (unsigned poll = 0;; ++poll) {
         hk::svc::SleepThread(100000000);
-        drain();
-        if (poll == 0 || poll % 50 == 0) reportPipeline("writer");
+        if (drain() && (poll == 0 || poll % 50 == 0)) reportPipeline("writer");
     }
 }
 
@@ -425,7 +446,9 @@ extern "C" void hkMain() {
     const unsigned rearmed = installChecked(module, rearmWindowHook, 0x12e020, 0xb9403408);
     char header[256];
     const int size = std::snprintf(header, sizeof(header),
-        "GROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n"
+        // A process stopped during an append can leave an unterminated tail.
+        // Begin this new session on its own physical line.
+        "# session boundary\nGROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n"
         "GROOVE_DIAG native_hooks attached=%u evaluated=%u dispatched=%u advanced=%u rearmed=%u\n",
         (unsigned long long)session,
         (unsigned long long)hk::svc::getSystemTickFrequency(),

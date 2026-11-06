@@ -53,6 +53,25 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(stats["admission_code:0"], 2)
         self.assertEqual(stats["window_lifetime_unresolved"], 1)
 
+    def test_corrupt_or_unterminated_records_are_not_decoded(self):
+        records = decode([
+            "GROOVE_NATIVE2 44 1 100 10 10 0 3 -960 -100 -75 75 100 18446744073709551615\r\n",
+            "GROOVE_NATIVE2 44 2 101 10 11 0 1 0 -100 -75 75 100 18\x00\n",
+            "GROOVE_NATIVE2 44 3 102 10 11 0 1 0 -100 -75 75 100 18"
+            "GROOVE_SESSION3 46 100 1 1 1 1 1 1 1 1 84\n",
+            "GROOVE_NATIVE2 44 4 103 10 11 0 1 0 -100 -75 75 100 18# session boundary\n",
+            "GROOVE_SESSION3 45 100 1 1 1 1 1 1 1 1 84\n",
+            "GROOVE_NATIVE2 45 1 110 10 10 0 3 -960 -100 -75 75 100 1844",
+        ])
+        first = next(records)
+        self.assertEqual(first["correlation"]["window_token"], "ffffffffffffffff")
+        with self.assertRaises(StopIteration) as finished:
+            next(records)
+        stats = finished.exception.value
+        self.assertEqual(stats["_malformed_records"], 4)
+        self.assertNotIn(46, stats)
+        self.assertEqual(stats[45]["gameplay_hooks_installed"], 84)
+
     def test_legacy_sessions_raw_fields_and_loss(self):
         records = decode([
             "prefix GROOVE_SESSION 44 19200000 1 1 1\n",

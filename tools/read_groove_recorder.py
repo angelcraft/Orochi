@@ -38,7 +38,9 @@ SUBSCENES = (
     "Alien Alphabet", "A for Effort", "Lightning Bolting",
     "Wiper Bosses", "Deep Sea",
 )
-TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|NATIVE2|NATIVE|REC2|REC|LOST)\s+([-\d ]+)")
+TAG_START = r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|NATIVE2|NATIVE|REC2|REC|LOST)[ \t]+"
+TAG_PREFIX = re.compile(TAG_START)
+TAG = re.compile(TAG_START + r"(-?[0-9]+(?: +-?[0-9]+)*) *\r?\n\Z")
 DIAG = re.compile(r"\bGROOVE_DIAG\s+([^\r\n]+)")
 EXPECT = {"SESSION": 5, "SESSION2": 10, "REC": 7,
           "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10, "NATIVE": 12, "NATIVE2": 13}
@@ -98,18 +100,25 @@ def decode(lines):
     sessions = {}
     diagnostics = []
     contexts = {}
+    malformed_records = 0
     commands = None
     for line in lines:
         diagnostic = DIAG.search(line)
         if diagnostic:
             diagnostics.append(diagnostic.group(1).strip())
-        for match in TAG.finditer(line):
+        # A tail left by interrupted file growth can have all fields but only
+        # part of the last number. Require the writer's newline terminator.
+        matches = list(TAG.finditer(line))
+        for match in matches:
+            malformed_records += bool(TAG_PREFIX.search(line, 0, match.start()))
             tag = match[1]
             try:
                 numbers = list(map(int, match[2].split()))
             except ValueError:
+                malformed_records += 1
                 continue
             if len(numbers) != EXPECT[tag]:
+                malformed_records += 1
                 continue
             sid, *args = numbers
             state = sessions.setdefault(sid, {
@@ -252,8 +261,12 @@ def decode(lines):
                 "parameters": parameters,
                 **({"correlation": correlation} if correlation is not None else {}),
             }
+        if not matches and TAG_PREFIX.search(line):
+            malformed_records += 1
     if diagnostics:
         sessions["_diagnostics"] = diagnostics
+    if malformed_records:
+        sessions["_malformed_records"] = malformed_records
     return sessions
 
 
