@@ -55,7 +55,7 @@ void appendFile(const char* data, int size) {
     if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsFailure()) return;
     s64 fileSize = 0;
     if (nn::fs::GetFileSize(&fileSize, file).IsSuccess()) {
-        if (fileSize > 32LL * 1024 * 1024) fileSize = 0;
+        // Never rotate or truncate: preserve the entire recording across sessions.
         if (nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
             const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
             (void)nn::fs::WriteFile(file, fileSize, data, size, flush);
@@ -171,8 +171,10 @@ void drain() {
         const int size = std::snprintf(packet, sizeof(packet),
             "GROOVE_LOST %llu %llu\n",
             (unsigned long long)session, (unsigned long long)loss);
-        if (size > 0 && size < static_cast<int>(sizeof(packet)))
+        if (size > 0 && size < static_cast<int>(sizeof(packet))) {
             emit(packet, size);
+            appendFile(packet, size);
+        }
         reportedLoss = loss;
     }
     draining.clear(std::memory_order_release);
