@@ -41,7 +41,7 @@ class ReaderTests(unittest.TestCase):
             try:
                 items.append(next(records))
             except StopIteration as finished:
-                state = finished.exception.value
+                state = finished.value
                 break
         self.assertEqual(len(items), 6)
         self.assertEqual(items[1]["parameters"]["scene_name"], "Hoop Trundling")
