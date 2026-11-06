@@ -38,10 +38,10 @@ SUBSCENES = (
     "Alien Alphabet", "A for Effort", "Lightning Bolting",
     "Wiper Bosses", "Deep Sea",
 )
-TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|REC2|REC|LOST)\s+([-\d ]+)")
+TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|NATIVE|REC2|REC|LOST)\s+([-\d ]+)")
 DIAG = re.compile(r"\bGROOVE_DIAG\s+([^\r\n]+)")
 EXPECT = {"SESSION": 5, "SESSION2": 10, "REC": 7,
-          "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10}
+          "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10, "NATIVE": 12}
 
 
 def decode_argument(arg_type, raw):
@@ -95,6 +95,11 @@ def decode(lines):
             if tag == "ACTION":
                 seq, counter, stage, command_id, scene_id, *raw_args = args
                 kind, value, thread_field, auxiliary = 9, command_id, 0xffffffff, None
+            elif tag == "NATIVE":
+                seq, counter, stage, kind, value, auxiliary, relative, *raw_args = args
+                if kind not in (10, 11, 12):
+                    continue
+                thread_field = 0xffffffff
             elif tag == "REC2":
                 seq, counter, kind, stage, value, thread_field, auxiliary = args
             else:
@@ -132,6 +137,17 @@ def decode(lines):
                     parameters["raw_arguments"] = raw_args
                 observed = state.setdefault("gameplay_commands_observed", Counter())
                 observed[command_id] += 1
+            if tag == "NATIVE":
+                if kind == 12:
+                    event_name, offset = "logical_input_dispatched", 0x12A690
+                    parameters = {"logical_input_id": value, "native_argument": auxiliary,
+                                  "group": raw_args[0], "dispatcher_result": raw_args[1]}
+                else:
+                    event_name, offset = (("input_window_attached", 0x12DD60) if kind == 10
+                                          else ("input_window_evaluated", 0x12E180))
+                    parameters = {"logical_input_id": value, "relative_ticks": relative,
+                                  "effective_thresholds": raw_args,
+                                  ("group" if kind == 10 else "admission_code"): auxiliary}
             if kind in (4, 5) and auxiliary is not None:
                 parameters["delay_ticks"] = auxiliary
             if kind == 6 and auxiliary is not None:

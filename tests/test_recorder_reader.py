@@ -3,6 +3,27 @@ from tools.read_groove_recorder import SUBSCENES, decode
 
 
 class ReaderTests(unittest.TestCase):
+    def test_native_input_trace_preserves_original_codes_and_order(self):
+        attached, evaluated, dispatched = list(decode([
+            "GROOVE_SESSION3 44 100 1 1 1 1 1 1 1 1 84\n",
+            "GROOVE_NATIVE 44 1 100 10 10 0 3 -960 -28 -12 13 31\n",
+            "GROOVE_NATIVE 44 2 180 10 11 0 2 -20 -28 -12 13 31\n",
+            "GROOVE_NATIVE 44 3 181 10 12 0 7 0 3 1 0 0\n",
+        ]))
+        self.assertEqual([r["sequence"] for r in (attached, evaluated, dispatched)], [1, 2, 3])
+        self.assertEqual(attached["main_offset"], "0x12dd60")
+        self.assertEqual(attached["parameters"], {
+            "logical_input_id": 0, "group": 3, "relative_ticks": -960,
+            "effective_thresholds": [-28, -12, 13, 31],
+        })
+        self.assertEqual(evaluated["parameters"]["admission_code"], 2)
+        self.assertEqual(evaluated["seconds_from_first_record"], 0.8)
+        self.assertEqual(dispatched["parameters"]["dispatcher_result"], 1)
+        for event in (attached, evaluated, dispatched):
+            self.assertIsNone(event["judgement"])
+            self.assertIsNone(event["musical_beat"])
+            self.assertIsNone(event["player_input"])
+
     def test_legacy_sessions_raw_fields_and_loss(self):
         records = decode([
             "prefix GROOVE_SESSION 44 19200000 1 1 1\n",

@@ -39,7 +39,10 @@ enum Kind : u32 {
     SubSceneInitRequested = 6,
     SubSceneCuesEnabled = 7,
     ThreadAppended = 8,
-    GameplayCalled = 9
+    GameplayCalled = 9,
+    WindowAttached = 10,
+    WindowEvaluated = 11,
+    InputDispatched = 12
 };
 
 groove::Buffer<4096> buffer;
@@ -226,6 +229,46 @@ void recordGameplay(s32 command, s32 scene, Args... args) {
                  command, kUnknown, scene, {encodeArgument(args)...}});
 }
 
+// The pinned target's fields are read as native words without aliasing its objects.
+s32 nativeWord(const void* object, unsigned offset) {
+    s32 value;
+    __builtin_memcpy(&value, static_cast<const unsigned char*>(object) + offset, sizeof(value));
+    return value;
+}
+
+void recordWindow(Kind kind, const void* window, s32 inputId, s32 detail, s32 relative) {
+    buffer.push({0, hk::svc::getSystemTick(), kind,
+                 lastCreatedStage.load(std::memory_order_relaxed), inputId,
+                 static_cast<u32>(relative), detail,
+                 {nativeWord(window, 0x24), nativeWord(window, 0x28),
+                  nativeWord(window, 0x2c), nativeWord(window, 0x30)}});
+}
+
+HkTrampoline attachWindowHook = [](TrampolineStatic(), void* window, void* manager) -> void {
+    orig(window, manager);
+    recordWindow(WindowAttached, window, nativeWord(window, 0x10),
+                 nativeWord(window, 0x44), nativeWord(window, 0x34));
+};
+
+HkTrampoline evaluateWindowHook = [](TrampolineStatic(), void* window, s32 inputId,
+                                      s32* relativeOut) -> s32 {
+    const bool matches = nativeWord(window, 0x10) == inputId;
+    const s32 relative = matches ? nativeWord(window, 0x34) : 0;
+    const s32 result = orig(window, inputId, relativeOut);
+    // Mismatched IDs return before the original computes effective thresholds.
+    if (matches) recordWindow(WindowEvaluated, window, inputId, result, relative);
+    return result;
+};
+
+HkTrampoline dispatchInputHook = [](TrampolineStatic(), void* scene, s32 inputId,
+                                     s32 argument, s32 group) -> u32 {
+    const u32 dispatched = orig(scene, inputId, argument, group);
+    buffer.push({0, hk::svc::getSystemTick(), InputDispatched,
+                 lastCreatedStage.load(std::memory_order_relaxed), inputId,
+                 0, argument, {group, dispatched}});
+    return dispatched;
+};
+
 #include "groove_gameplay_hooks.inc"
 
 void drain() {
@@ -328,12 +371,17 @@ extern "C" void hkMain() {
     const unsigned threads = installChecked(module, appendThreadHook, kAppendThread, 0xf8408c08);
     unsigned hoop = 0;
     const unsigned gameplay = installGameplayHooks(module, hoop);
+    const unsigned attached = installChecked(module, attachWindowHook, 0x12dd60, 0xfc1d0fe8);
+    const unsigned evaluated = installChecked(module, evaluateWindowHook, 0x12e180, 0xb9401008);
+    const unsigned dispatched = installChecked(module, dispatchInputHook, 0x12a690, 0xa9bd7bfd);
     char header[256];
     const int size = std::snprintf(header, sizeof(header),
-        "GROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n",
+        "GROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n"
+        "GROOVE_DIAG native_hooks attached=%u evaluated=%u dispatched=%u\n",
         (unsigned long long)session,
         (unsigned long long)hk::svc::getSystemTickFrequency(),
-        stage, wait, hoop, sfx, bgm, subscene, cues, threads, gameplay);
+        stage, wait, hoop, sfx, bgm, subscene, cues, threads, gameplay,
+        attached, evaluated, dispatched);
     if (size > 0 && size < static_cast<int>(sizeof(header))) {
         emit(header, size);
         __builtin_memcpy(storedSessionHeader, header, size);
