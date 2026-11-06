@@ -1,4 +1,4 @@
-"""Decode Groove Recorder v1/v2 debug logs to JSONL and coverage JSON.
+"""Decode Groove Recorder v1/v2/v3 logs to JSONL and coverage JSON.
 
 A shared engine hook does not imply all actions or inputs were captured.
 Every record retains provenance. "musical_beat" is intentionally unknown
@@ -38,15 +38,26 @@ SUBSCENES = (
     "Alien Alphabet", "A for Effort", "Lightning Bolting",
     "Wiper Bosses", "Deep Sea",
 )
-TAG = re.compile(r"\bGROOVE_(SESSION2|SESSION|REC2|REC|LOST)\s+([-\d ]+)")
+TAG = re.compile(r"\bGROOVE_(SESSION3|SESSION2|SESSION|ACTION|REC2|REC|LOST)\s+([-\d ]+)")
 DIAG = re.compile(r"\bGROOVE_DIAG\s+([^\r\n]+)")
 EXPECT = {"SESSION": 5, "SESSION2": 10, "REC": 7,
-          "REC2": 8, "LOST": 2}
+          "REC2": 8, "LOST": 2, "SESSION3": 11, "ACTION": 10}
+
+
+def decode_argument(arg_type, raw):
+    if arg_type.endswith("*"):
+        return {"non_null": bool(raw)}
+    if arg_type == "bool":
+        return bool(raw)
+    if arg_type == "float":
+        return {"ieee754_bits": f"0x{raw & 0xffffffff:08x}"}
+    return raw
 
 
 def decode(lines):
     sessions = {}
     diagnostics = []
+    commands = None
     for line in lines:
         diagnostic = DIAG.search(line)
         if diagnostic:
@@ -70,16 +81,21 @@ def decode(lines):
             if tag.startswith("SESSION"):
                 hz, *flags = args
                 state["clock_hz"] = hz
-                state["format"] = 2 if tag == "SESSION2" else 1
+                state["format"] = {"SESSION": 1, "SESSION2": 2, "SESSION3": 3}[tag]
+                if tag == "SESSION3":
+                    state["gameplay_hooks_installed"] = flags.pop()
                 state["hooks"] = dict(zip(
-                    HOOKS_V2 if tag == "SESSION2" else HOOKS_V1,
+                    HOOKS_V1 if tag == "SESSION" else HOOKS_V2,
                     map(bool, flags),
                 ))
                 continue
             if tag == "LOST":
                 state["dropped"] = max(state["dropped"], args[0])
                 continue
-            if tag == "REC2":
+            if tag == "ACTION":
+                seq, counter, stage, command_id, scene_id, *raw_args = args
+                kind, value, thread_field, auxiliary = 9, command_id, 0xffffffff, None
+            elif tag == "REC2":
                 seq, counter, kind, stage, value, thread_field, auxiliary = args
             else:
                 seq, counter, kind, stage, value, thread_field = args
@@ -97,6 +113,25 @@ def decode(lines):
             parameters = {}
             if param:
                 parameters[param] = stage_id if kind == 1 else value
+            if tag == "ACTION":
+                if commands is None:
+                    catalog = Path(__file__).with_name("groove_gameplay_catalog.json")
+                    commands = {entry["id"]: entry for entry in
+                                json.loads(catalog.read_text(encoding="utf-8"))["commands"]}
+                command = commands.get(command_id)
+                event_name = "gameplay_called"
+                parameters = {"command_id": command_id, "remix_scene_id": None if scene_id < 0 else scene_id}
+                if command and command["scene_id"] == scene_id:
+                    offset = int(command["main_offset"], 16)
+                    parameters.update(scene_class=command["scene"], action=command["action"])
+                    parameters["arguments"] = [
+                        {"type": arg_type, "value": decode_argument(arg_type, raw)}
+                        for arg_type, raw in zip(command["arguments"], raw_args)
+                    ]
+                else:
+                    parameters["raw_arguments"] = raw_args
+                observed = state.setdefault("gameplay_commands_observed", Counter())
+                observed[command_id] += 1
             if kind in (4, 5) and auxiliary is not None:
                 parameters["delay_ticks"] = auxiliary
             if kind == 6 and auxiliary is not None:

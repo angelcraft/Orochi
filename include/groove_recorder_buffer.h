@@ -14,6 +14,7 @@ struct Event {
     std::uint32_t threadTick;
     // Version 2 payload: e.g. SFX delay in ticks.
     std::int32_t auxiliary{};
+    std::int64_t arguments[4]{};
 };
 
 template <std::size_t Capacity>

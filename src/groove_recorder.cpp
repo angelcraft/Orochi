@@ -2,6 +2,9 @@
 #include "hk/hook/Trampoline.h"
 #include "hk/svc/cpu.h"
 #include "aloha/WavMark.h"
+#include "aloha/Scene.h"
+#include <bit>
+#include <type_traits>
 #include "nn/fs.h"
 #include <cstdio>
 
@@ -10,7 +13,6 @@ namespace {
 // existing symbols; none should be reused for another game update.
 constexpr ptr kStage = 0x488940;
 constexpr ptr kWait = 0x514d70;
-constexpr ptr kHoop = 0x217960;
 constexpr ptr kLoop = 0x509e10;
 constexpr ptr kScheduleSfx = 0x12bff0;
 constexpr ptr kStartBgm = 0x139140;
@@ -30,12 +32,10 @@ enum Kind : u32 {
     BgmRequested = 5,
     SubSceneInitRequested = 6,
     SubSceneCuesEnabled = 7,
-    ThreadAppended = 8
+    ThreadAppended = 8,
+    GameplayCalled = 9
 };
 
-// Every scene type can pass through the shared sequencer / audio routines.
-// The recorder DOES NOT yet capture all game-specific actions, actual inputs
-// or judgements; those need separately proven common hooks.
 groove::Buffer<4096> buffer;
 std::atomic<u32> lastCreatedStage{kUnknown};
 std::atomic_flag draining = ATOMIC_FLAG_INIT;
@@ -105,11 +105,6 @@ HkTrampoline waitHook = [](TrampolineStatic(), void* thread, s32 ticks) -> void 
     orig(thread, ticks);
 };
 
-HkTrampoline hoopHook = [](TrampolineStatic(), void* scene, void* thread, s32 bubbleState) -> void {
-    record(HoopCalled, bubbleState);
-    orig(scene, thread, bubbleState);
-};
-
 // Common scene audio scheduling is useful for identifying cues across
 // minigames, but an SFX is NOT proof of a scheduled player input.
 HkTrampoline sfxHook = [](TrampolineStatic(), void* scene, void* thread,
@@ -144,17 +139,69 @@ HkTrampoline appendThreadHook = [](TrampolineStatic(), void* runner,
     record(ThreadAppended, 0);
 };
 
+// Permit only a single displaced instruction. Far branches would overwrite
+// additional instructions and use IP0 in the continuation.
+template <typename L>
+bool installChecked(const hk::ro::RoModule* module, hk::hook::Trampoline<L>& hook,
+                    ptr offset, u32 expected) {
+    const auto text = module->text();
+    if (offset % sizeof(u32) || text.size() < sizeof(u32) ||
+        offset > text.size() - sizeof(u32))
+        return false;
+    const ptr site = text.start() + offset;
+    const auto near = [](ptr a, ptr b) {
+        // Leave room for the ADRP relocation used by the loop trampoline.
+        constexpr ptr limit = (ptr{1} << 27) - 32;
+        return a >= b ? a - b <= limit : b - a <= limit;
+    };
+    const ptr replacement = reinterpret_cast<ptr>(hk::hook::detail::TrampolineFunc<L>::invoke);
+    const ptr backup = reinterpret_cast<ptr>(&hk::hook::detail::TrampolineStaticBackup<L>::orig);
+    return near(site, replacement) && near(backup, site) &&
+           *reinterpret_cast<const u32*>(site) == expected &&
+           hook.installAtOffset(module, offset).succeeded();
+}
+
+template <typename T>
+s64 encodeArgument(T argument) {
+    if constexpr (std::is_pointer_v<T>)
+        return argument != nullptr;
+    else if constexpr (std::is_same_v<T, float>)
+        return std::bit_cast<u32>(argument);
+    else
+        return static_cast<s64>(argument);
+}
+
+template <typename... Args>
+void recordGameplay(s32 command, s32 scene, Args... args) {
+    static_assert(sizeof...(args) <= 4);
+    buffer.push({0, hk::svc::getSystemTick(), GameplayCalled,
+                 lastCreatedStage.load(std::memory_order_relaxed),
+                 command, kUnknown, scene, {encodeArgument(args)...}});
+}
+
+#include "groove_gameplay_hooks.inc"
+
 // Keep formatting outside the timing-sensitive hooks. Emitting at most
-// 16 events / frame bounds the work; the buffer reports any dropped records.
+// 48 events every twelve loop calls bounds the work; the buffer counts losses.
 void drain() {
-    if ((++drainFrameCounter % 12) != 0) return;
     if (draining.test_and_set(std::memory_order_acquire)) return;
-    char packet[8192];
+    if ((++drainFrameCounter % 12) != 0) {
+        draining.clear(std::memory_order_release);
+        return;
+    }
+    char packet[48 * 192];
     int used = 0;
     for (int index = 0; index < 48; ++index) {
         groove::Event event;
         if (!buffer.pop(event)) break;
-        const int size = std::snprintf(packet + used, sizeof(packet) - used,
+        const int size = event.kind == GameplayCalled
+            ? std::snprintf(packet + used, sizeof(packet) - used,
+                "GROOVE_ACTION %llu %llu %llu %u %d %d %lld %lld %lld %lld\n",
+                (unsigned long long)session, (unsigned long long)event.sequence,
+                (unsigned long long)event.counter, event.stage, event.value, event.auxiliary,
+                (long long)event.arguments[0], (long long)event.arguments[1],
+                (long long)event.arguments[2], (long long)event.arguments[3])
+            : std::snprintf(packet + used, sizeof(packet) - used,
             "GROOVE_REC2 %llu %llu %llu %u %u %d %u %d\n",
             (unsigned long long)session,
             (unsigned long long)event.sequence,
@@ -206,44 +253,31 @@ extern "C" void hkMain() {
         diagnostic("GROOVE_DIAG build_id_unavailable_or_unsupported\n");
         return;
     }
-    const auto base = module->range().start();
-    const auto expected = [base](ptr offset, u32 word) {
-        return *reinterpret_cast<const u32*>(base + offset) == word;
-    };
-    // Previously verified prologues. Additional hooks are bound to the
-    // same Build ID, and remain UNVERIFIED in a running Switch process.
-    if (!expected(kLoop, 0x900044a8) || !expected(kStage, 0xa9bb7bfd) ||
-        !expected(kWait, 0xb9427808) || !expected(kHoop, 0xd102c3ff) ||
-        !expected(kLoop+4, 0x900044a9) || !expected(kStage+4, 0xf9000bf9) ||
-        !expected(kWait+4, 0x0b010108) || !expected(kHoop+4, 0xa9057bfd)) {
-        diagnostic("GROOVE_DIAG original_hook_bytes_changed\n");
-        return;
-    }
-
     session = hk::svc::getSystemTick();
-    if (loopHook.installAtMainOffset(kLoop).failed()) {
-        diagnostic("GROOVE_DIAG main_loop_hook_failed\n");
+    if (!installChecked(module, loopHook, kLoop, 0x900044a8)) {
+        diagnostic("GROOVE_DIAG main_loop_hook_rejected\n");
         return;
     }
-    const unsigned stage = stageHook.installAtMainOffset(kStage).succeeded();
-    const unsigned wait = waitHook.installAtMainOffset(kWait).succeeded();
-    const unsigned hoop = hoopHook.installAtMainOffset(kHoop).succeeded();
-    const unsigned sfx = sfxHook.installAtMainOffset(kScheduleSfx).succeeded();
-    const unsigned bgm = bgmHook.installAtMainOffset(kStartBgm).succeeded();
-    const unsigned subscene = subSceneHook.installAtMainOffset(kInitSubScene).succeeded();
-    const unsigned cues = cuesHook.installAtMainOffset(kEnableCues).succeeded();
-    const unsigned threads = appendThreadHook.installAtMainOffset(kAppendThread).succeeded();
+    const unsigned stage = installChecked(module, stageHook, kStage, 0xa9bb7bfd);
+    const unsigned wait = installChecked(module, waitHook, kWait, 0xb9427808);
+    const unsigned sfx = installChecked(module, sfxHook, kScheduleSfx, 0xfc190fec);
+    const unsigned bgm = installChecked(module, bgmHook, kStartBgm, 0x6dba23e9);
+    const unsigned subscene = installChecked(module, subSceneHook, kInitSubScene, 0x52800708);
+    const unsigned cues = installChecked(module, cuesHook, kEnableCues, 0xa9bd7bfd);
+    const unsigned threads = installChecked(module, appendThreadHook, kAppendThread, 0xf8408c08);
+    unsigned hoop = 0;
+    const unsigned gameplay = installGameplayHooks(module, hoop);
     char header[256];
     const int size = std::snprintf(header, sizeof(header),
-        "GROOVE_SESSION2 %llu %llu %u %u %u %u %u %u %u %u\n",
+        "GROOVE_SESSION3 %llu %llu %u %u %u %u %u %u %u %u %u\n",
         (unsigned long long)session,
         (unsigned long long)hk::svc::getSystemTickFrequency(),
-        stage, wait, hoop, sfx, bgm, subscene, cues, threads);
+        stage, wait, hoop, sfx, bgm, subscene, cues, threads, gameplay);
     if (size > 0 && size < static_cast<int>(sizeof(header))) {
         emit(header, size);
         __builtin_memcpy(storedSessionHeader, header, size);
         storedSessionHeaderLength = size;
     }
-    if (initHook.installAtMainOffset(0x50cba0).failed())
+    if (!installChecked(module, initHook, 0x50cba0, 0xa9bd7bfd))
         diagnostic("GROOVE_DIAG sd_mount_hook_failed\n");
 }

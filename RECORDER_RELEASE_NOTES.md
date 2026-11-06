@@ -2,7 +2,7 @@
 
 **Target:** Rhythm Heaven Groove 1.0.0 (Title ID `0100D9F01D474000`).
 
-**State:** Built for AArch64 / NSO as `subsdk1`, automated CI tests pass. This is **not an installable or validated Switch release**: `svcMapProcessMemory` may be missing from the original NPDM's capabilities, and loading a patched NPDM has not been verified on hardware. Do not install the module until that is resolved and its hooks are checked.
+**State:** Development build for static and CI verification. Switch loading remains unverified. The original NPDM lacks `svcMapProcessMemory` (0x74) in both ACI0 and ACID, which LibHakkun uses for its writable code aliases. The one-SVC candidate changes the signed ACID payload. The LibHakkun reference also changes other permissions. Neither candidate is distributed here.
 
 ## Implemented observations
 
@@ -13,8 +13,10 @@
 - BGM / Wavmark requests
 - Subscene initialization and cue-enable requests
 - Thread append requests
+- 84 cataloged actions across 32 scene classes, including the existing hoop observation through the same trampoline
+- Typed scalar arguments, IEEE-754 float bits and pointer presence. Pointer contents and addresses are omitted.
 
-These hooks have been checked by static reasoning and CI compilation, **not by a gameplay trace on Switch**. They will not necessarily capture every title/minigame, and **do not yet capture expected player inputs, actual controller input, judgement windows, or hit/miss outcomes**.
+The 93 distinct entry words were checked against the original 1.0.0 executable. Each hook checks its word at runtime and requires single-instruction branch reach in both directions. Gameplay callbacks use signatures from Orochi's scene declarations. Switch ABI behavior and coverage still require a gameplay trace. Expected inputs, controller input, judgement windows and outcomes remain unresolved.
 
 ## Logs
 
@@ -26,7 +28,7 @@ To convert a collected log:
 python tools/read_groove_recorder.py groove-recorder.log events.jsonl coverage.json
 ```
 
-The reader understands legacy `GROOVE_REC` and expanded `GROOVE_REC2`, and labels unknown musical beat and input data as null instead of inventing them.
+The reader supports legacy records and v3 actions. Keep the gameplay catalog beside the reader. The report separates installed gameplay-hook count from observed command IDs. Unknown beat and input fields are null.
 
 ## Known unresolved risks
 
@@ -38,4 +40,4 @@ The reader understands legacy `GROOVE_REC` and expanded `GROOVE_REC2`, and label
 
 The mod **rusino - Looping the Rooms** on GameBanana, mod 701655, is a reference custom remix, but its downloadable contents have not yet been independently inspected. Do not assume its gameplay-cue layout from its title or screenshots.
 
-Source branch: `experiment/groove-recorder-universal`. Keep previous functional RHRE/IPS builds untouched.
+Source branch `experiment/groove-recorder-all-games`.

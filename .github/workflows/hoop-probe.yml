@@ -3,7 +3,7 @@ name: Orochi experimental subsdk1
 on:
   workflow_dispatch:
   push:
-    branches: [experiment/hoop-probe, experiment/groove-recorder, experiment/groove-recorder-universal]
+    branches: [experiment/hoop-probe, experiment/groove-recorder, experiment/groove-recorder-universal, experiment/groove-recorder-all-games]
 
 permissions:
   contents: read
@@ -52,7 +52,12 @@ jobs:
           cp build/exefs/subsdk1 artifacts/
           cp tools/read_groove_recorder.py artifacts/
           cp RECORDER_RELEASE_NOTES.md artifacts/README.md
-          (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md > SHA256SUMS)
+          catalog_files=()
+          if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then
+            cp tools/groove_gameplay_catalog.json artifacts/
+            catalog_files=(groove_gameplay_catalog.json)
+          fi
+          (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md ${catalog_files[@]} > SHA256SUMS)
       - uses: actions/upload-artifact@v7
         if: always()
         with:

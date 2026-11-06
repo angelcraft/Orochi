@@ -52,6 +52,36 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(state[99]["subscene_categories"]["20"]["subscene_init_requested"], 1)
         self.assertEqual(state["_diagnostics"], ["recorder_v2_entered"])
 
+    def test_gameplay_arguments_and_legacy_records_share_sequence(self):
+        records = decode([
+            "GROOVE_SESSION3 17 100 1 1 1 1 1 1 1 1 84\n",
+            "GROOVE_REC2 17 1 100 1 14 0 4294967295 0\n",
+            "GROOVE_ACTION 17 2 150 14 11 3 -2147483649 4294967296 1 0\n",
+            "GROOVE_ACTION 17 3 200 14 70 27 1 1065353216 0 1\n",
+            "GROOVE_ACTION 17 4 250 14 3 0 0 0 0 0\n",
+        ])
+        next(records)
+        brake = next(records)
+        self.assertEqual(brake["seconds_from_first_record"], 0.5)
+        self.assertEqual(brake["main_offset"], "0x1608f0")
+        self.assertEqual(brake["parameters"]["action"], "brake")
+        self.assertEqual([a["value"] for a in brake["parameters"]["arguments"]],
+                         [-2147483649, 4294967296, True])
+        self.assertIsNone(brake["expected_input"])
+        self.assertIsNone(brake["player_input"])
+        self.assertIsNone(brake["judgement"])
+        cue = next(records)
+        self.assertEqual([a["value"] for a in cue["parameters"]["arguments"]],
+                         [{"non_null": True}, {"ieee754_bits": "0x3f800000"},
+                          {"non_null": False}, {"non_null": True}])
+        self.assertEqual(next(records)["parameters"]["arguments"], [])
+        with self.assertRaises(StopIteration) as finished:
+            next(records)
+        state = finished.exception.value[17]
+        self.assertEqual(state["gameplay_hooks_installed"], 84)
+        self.assertEqual(state["gameplay_commands_observed"], {11: 1, 70: 1, 3: 1})
+        self.assertEqual(state["gaps"], 0)
+
     def test_session_without_hooks_does_not_invent_events(self):
         records = decode(["GROOVE_SESSION2 2 19200000 1 1 0 0 0 0 0 0\n"])
         with self.assertRaises(StopIteration) as finished:
