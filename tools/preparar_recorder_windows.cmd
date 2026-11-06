@@ -22,7 +22,7 @@ if errorlevel 1 (
 set "ORIGINAL=%~1"
 if not defined ORIGINAL (
   echo Arrastra el main.npdm ORIGINAL del juego sobre este .cmd
-  echo o introduce su ruta completa:
+  echo o introduce su ruta completa. El archivo main debe estar al lado.
   set /p "ORIGINAL=Ruta original main.npdm: "
 )
 set "ORIGINAL=%ORIGINAL:"=%"
@@ -33,18 +33,24 @@ if not exist "%ORIGINAL%" (
 )
 set "SDROOT="
 echo.
-set /p "SDROOT=Letra/ruta de la SD para comprobar conflictos (Enter para omitir): "
+set /p "SDROOT=Raiz de la SD para comprobar conflictos (por ejemplo E:\): "
+set "SDROOT=%SDROOT:"=%"
+if not defined SDROOT (
+  echo ERROR: Es necesario comprobar la SD antes de preparar la prueba.
+  pause
+  exit /b 1
+)
+if "%SDROOT:~-1%"==":" set "SDROOT=%SDROOT%\"
 set "OUT=%~dp0GrooveRecorder-LAB.zip"
 if exist "%OUT%" (
   echo ERROR: Ya existe GrooveRecorder-LAB.zip. Guardalo antes de repetir.
   pause
   exit /b 1
 )
-if defined SDROOT (
-  py -3 "%~dp0build_recorder_lab_zip.py" "%ORIGINAL%" "%~dp0subsdk1" "%OUT%" --lab-ack --sd-root "%SDROOT%"
-) else (
-  py -3 "%~dp0build_recorder_lab_zip.py" "%ORIGINAL%" "%~dp0subsdk1" "%OUT%" --lab-ack
-)
+choice /c SN /n /m "Preparar prueba de laboratorio sin validacion en Switch [S/N]? "
+if errorlevel 2 exit /b 1
+if not errorlevel 1 exit /b 1
+py -3 "%~dp0build_recorder_lab_zip.py" "%ORIGINAL%" "%~dp0subsdk1" "%OUT%" --lab-ack --sd-root "%SDROOT%\."
 if errorlevel 1 (
   echo.
   echo ERROR: Preparacion cancelada o validacion no superada.

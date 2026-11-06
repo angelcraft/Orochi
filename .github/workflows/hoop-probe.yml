@@ -61,6 +61,10 @@ jobs:
             catalog_files=(groove_gameplay_catalog.json npdm_one_svc.py build_recorder_lab_zip.py preparar_recorder_windows.cmd)
           fi
           (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md ${catalog_files[@]} > SHA256SUMS)
+          if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then
+            mkdir -p GrooveRecorder
+            mv artifacts/* build.log image-digest.txt GrooveRecorder/
+          fi
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -69,3 +73,4 @@ jobs:
             artifacts/
             build.log
             image-digest.txt
+            GrooveRecorder/

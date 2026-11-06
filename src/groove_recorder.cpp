@@ -43,37 +43,48 @@ u64 session{}, reportedLoss{};
 
 unsigned drainFrameCounter{};
 bool sdReady = false;
+bool sdMounted = false;
 char storedSessionHeader[256]{};
 int storedSessionHeaderLength{};
-constexpr const char* kSdFolder = "sdmc:/Orochi";
-constexpr const char* kSdLog = "sdmc:/Orochi/groove-recorder.log";
+bool sdWriteFailed{};
+constexpr const char* kSdMount = "grooverec";
+constexpr const char* kSdFolder = "grooverec:/Orochi";
+constexpr const char* kSdLog = "grooverec:/Orochi/groove-recorder.log";
+
+void diagnostic(const char* message);
 
 // Only called during the main-loop drain path. Never do SD I/O in a gameplay hook.
-void appendFile(const char* data, int size) {
-    if (!sdReady || size <= 0) return;
+bool appendFile(const char* data, int size) {
+    if (!sdReady || size <= 0) return false;
     nn::fs::FileHandle file{};
-    if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsFailure()) return;
+    if (nn::fs::OpenFile(&file, kSdLog,
+                         nn::fs::OpenMode_Write | nn::fs::OpenMode_Append).IsFailure())
+        return false;
     s64 fileSize = 0;
+    bool written = false;
     if (nn::fs::GetFileSize(&fileSize, file).IsSuccess()) {
-        // Never rotate or truncate: preserve the entire recording across sessions.
-        if (nn::fs::SetFileSize(file, fileSize + size).IsSuccess()) {
-            const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
-            (void)nn::fs::WriteFile(file, fileSize, data, size, flush);
-        }
+        const auto flush = nn::fs::WriteOption::CreateOption(nn::fs::WriteOptionFlag_Flush);
+        written = nn::fs::WriteFile(file, fileSize, data, size, flush).IsSuccess();
     }
     nn::fs::CloseFile(file);
+    return written;
 }
 
 void initSdLogging() {
-    if (nn::fs::MountSdCard("sdmc").IsFailure()) return;
+    if (!sdMounted && nn::fs::MountSdCard(kSdMount).IsFailure()) {
+        diagnostic("GROOVE_DIAG sd_mount_failed\n");
+        return;
+    }
+    sdMounted = true;
     (void)nn::fs::CreateDirectory(kSdFolder);
     (void)nn::fs::CreateFile(kSdLog, 0);
     nn::fs::FileHandle file{};
     if (nn::fs::OpenFile(&file, kSdLog, nn::fs::OpenMode_Write).IsSuccess()) {
         nn::fs::CloseFile(file);
         sdReady = true;
-        if (storedSessionHeaderLength > 0)
-            appendFile(storedSessionHeader, storedSessionHeaderLength);
+        diagnostic("GROOVE_DIAG sd_log_opened\n");
+    } else {
+        diagnostic("GROOVE_DIAG sd_log_open_failed\n");
     }
 }
 
@@ -212,7 +223,17 @@ void drain() {
         used += size;
     }
     emit(packet, used);
-    appendFile(packet, used);
+    if (sdReady && (storedSessionHeaderLength > 0 || used > 0)) {
+        if (storedSessionHeaderLength > 0 &&
+            appendFile(storedSessionHeader, storedSessionHeaderLength)) {
+            storedSessionHeaderLength = 0;
+        }
+        const bool failed = storedSessionHeaderLength > 0 ||
+                            (used > 0 && !appendFile(packet, used));
+        if (failed && !sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_failed\n");
+        if (!failed && sdWriteFailed) diagnostic("GROOVE_DIAG sd_write_recovered\n");
+        sdWriteFailed = failed;
+    }
     const u64 loss = buffer.dropped();
     if (loss != reportedLoss) {
         const int size = std::snprintf(packet, sizeof(packet),
@@ -220,7 +241,7 @@ void drain() {
             (unsigned long long)session, (unsigned long long)loss);
         if (size > 0 && size < static_cast<int>(sizeof(packet))) {
             emit(packet, size);
-            appendFile(packet, size);
+            if (storedSessionHeaderLength == 0) appendFile(packet, size);
         }
         reportedLoss = loss;
     }
