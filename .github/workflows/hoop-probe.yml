@@ -51,7 +51,9 @@ jobs:
           grep -q AArch64 artifacts/elf-header.txt
           cp build/exefs/subsdk1 artifacts/
           cp tools/read_groove_recorder.py artifacts/
+          cp tools/export_stage_catalog.py artifacts/
           cp RECORDER_RELEASE_NOTES.md artifacts/README.md
+          cp RECORDER_STAGE_CATALOG.md artifacts/
           catalog_files=()
           if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then
             cp tools/groove_gameplay_catalog.json artifacts/
@@ -63,7 +65,7 @@ jobs:
             cp RECORDER_WINDOW_LIFETIME.md tools/verify_native_inputs.py artifacts/
             catalog_files+=(RECORDER_WINDOW_LIFETIME.md verify_native_inputs.py)
           fi
-          (cd artifacts && sha256sum subsdk1 read_groove_recorder.py README.md ${catalog_files[@]} > SHA256SUMS)
+          (cd artifacts && sha256sum subsdk1 read_groove_recorder.py export_stage_catalog.py README.md RECORDER_STAGE_CATALOG.md ${catalog_files[@]} > SHA256SUMS)
           if [[ "$GITHUB_REF_NAME" == experiment/groove-recorder-all-games ]]; then
             mkdir -p GrooveRecorder
             mv artifacts/* build.log image-digest.txt GrooveRecorder/
